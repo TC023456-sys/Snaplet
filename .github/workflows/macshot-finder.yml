@@ -1,0 +1,138 @@
+name: Build Snaplet
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'macshot-finder/**'
+      - '.github/workflows/macshot-finder.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macshot-finder-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          XC=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$XC/Contents/Developer"
+      - name: Prepare pinned upstream source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v4.3.0 https://github.com/sw33tLie/macshot.git source
+          test "$(git -C source rev-parse HEAD)" = 5b762998a1520f90b702953c6b6460772800d6f4
+          git -C source apply --check ../macshot-finder/finder-paste.patch
+          git -C source apply ../macshot-finder/finder-paste.patch
+          git -C source apply --check ../macshot-finder/maintainer-attribution.patch
+          git -C source apply ../macshot-finder/maintainer-attribution.patch
+          python3 macshot-finder/brand-snaplet.py source
+          python3 macshot-finder/redesign-settings.py source
+          git clone --depth 1 --branch v4.3.0 https://github.com/sw33tLie/macshot.git "$RUNNER_TEMP/snaplet-brand-original"
+          python3 macshot-finder/branding-test.py source "$RUNNER_TEMP/snaplet-brand-original"
+          python3 macshot-finder/settings-redesign-test.py source "$RUNNER_TEMP/snaplet-brand-original"
+          swiftc -typecheck -O -swift-version 5 macshot-finder/SnapletSettingsChrome.swift
+          cp macshot-finder/FinderClipboard.swift source/macshot/Services/
+          cp macshot-finder/ForkUpdateService.swift source/macshot/Services/
+          cp macshot-finder/README.md source/FINDER-FORK.md
+      - name: Test and compile capture keyboard routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang -fobjc-arc -framework AppKit macshot-finder/keyboard/EventRoutingTests.m -o "$RUNNER_TEMP/event-tests"
+          "$RUNNER_TEMP/event-tests"
+          clang macshot-finder/keyboard/KeyRoutingTests.c -o "$RUNNER_TEMP/key-tests"
+          "$RUNNER_TEMP/key-tests"
+          for ARCH in arm64 x86_64; do
+            clang -c -fobjc-arc -arch "$ARCH" -mmacosx-version-min=12.3 macshot-finder/keyboard/EscapeFix.m -o "$RUNNER_TEMP/keyboard-$ARCH.o"
+            ar rcs "$RUNNER_TEMP/keyboard-$ARCH.a" "$RUNNER_TEMP/keyboard-$ARCH.o"
+          done
+          lipo -create "$RUNNER_TEMP/keyboard-arm64.a" "$RUNNER_TEMP/keyboard-x86_64.a" -output "$RUNNER_TEMP/SnapletKeyboard.a"
+      - name: Test image and file clipboard compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp macshot-finder/clipboard-test.swift "$RUNNER_TEMP/main.swift"
+          swiftc -O source/macshot/Services/FinderClipboard.swift "$RUNNER_TEMP/main.swift" -o "$RUNNER_TEMP/clipboard-test"
+          "$RUNNER_TEMP/clipboard-test"
+      - name: Test fork update release selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp macshot-finder/update-test.swift "$RUNNER_TEMP/main.swift"
+          swiftc -O source/macshot/Services/LanguageManager.swift source/macshot/Services/ForkUpdateService.swift "$RUNNER_TEMP/main.swift" -o "$RUNNER_TEMP/update-test"
+          "$RUNNER_TEMP/update-test"
+      - name: Run upstream tests
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild test -scheme macshotTests -configuration Debug -destination 'platform=macOS' -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO > ../unit-tests.log 2>&1 || { tail -100 ../unit-tests.log; exit 1; }
+      - name: Build Release for Apple Silicon and Intel
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.8 CURRENT_PROJECT_VERSION=43008 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
+      - name: Sign and package app and corresponding source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist package
+          ditto build/Build/Products/Release/macshot.app package/Snaplet.app
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleName Snaplet' package/Snaplet.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Snaplet' package/Snaplet.app/Contents/Info.plist
+          mkdir -p package/Snaplet.app/Contents/Resources
+          cp macshot-finder/LICENSE package/Snaplet.app/Contents/Resources/GPL-3.0.txt
+          cp macshot-finder/README.md package/Snaplet.app/Contents/Resources/SNAPLET-NOTICES.md
+          codesign --force --deep --sign - --timestamp=none --entitlements source/macshot/macshot.entitlements package/Snaplet.app
+          codesign --verify --deep --strict package/Snaplet.app
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Snaplet.app/Contents/Info.plist)" = com.sw33tlie.macshot.macshot
+          nm package/Snaplet.app/Contents/MacOS/macshot | grep InstallEscapeFix
+          ditto -c -k --sequesterRsrc --keepParent package/Snaplet.app dist/MacShot-Finder.zip
+          cp -R macshot-finder source/SnapletFork
+          cp .github/workflows/macshot-finder.yml source/SnapletFork/build-workflow.yml
+          test -d source/.git
+          rm -rf source/.git
+          cp macshot-finder/clipboard-test.swift source/FinderClipboardTest.swift
+          ditto -c -k --keepParent source dist/MacShot-Finder-Source.zip
+          cp macshot-finder/LICENSE dist/macshot-GPL-3.0-LICENSE.txt
+          shasum -a 256 dist/*.zip > dist/SHA256SUMS.txt
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macshot-finder
+          path: dist/*
+      - name: Publish separate macshot release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG=macshot-v4.3.0-finder.8
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to replace published binaries.'
+            exit 0
+          fi
+          test "$GH_REPO" = TC023456-sys/Snaplet
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.8 · 全新设置界面与独立项目' --latest --notes-file macshot-finder/README.md
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macshot-finder-failure-logs
+          path: |
+            unit-tests.log
+            release-build.log

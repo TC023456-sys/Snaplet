@@ -1,0 +1,1163 @@
+diff --git a/macshot/AppDelegate.swift b/macshot/AppDelegate.swift
+index f45c10c..98d8b88 100644
+--- a/macshot/AppDelegate.swift
++++ b/macshot/AppDelegate.swift
+@@ -1,6 +1,5 @@
+ import Cocoa
+ import Carbon
+-import Sparkle
+ import ServiceManagement
+ import UniformTypeIdentifiers
+ import AVFoundation
+@@ -183,12 +182,14 @@ private final class CaptureTimingTrace: @unchecked Sendable {
+ }
+ 
+ @MainActor
+-class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
++class AppDelegate: NSObject, NSApplicationDelegate {
+ 
+     private var statusItem: NSStatusItem!
+-    private var updaterController: SPUStandardUpdaterController!
+     private var overlayControllers: [OverlayWindowController] = []
+     private var settingsController: SettingsWindowController?
++    private var lastSettingsTabID = "general"
++    private var idleOverlayCleanup: DispatchWorkItem?
++    private var memoryPressureSource: DispatchSourceMemoryPressure?
+     private var onboardingController: PermissionOnboardingController?
+     private var pinControllers: [PinWindowController] = []
+     private var thumbnailControllers: [FloatingThumbnailController] = []
+@@ -306,11 +307,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+         // something references ScreenshotHistory.shared.
+         _ = ScreenshotHistory.shared
+ 
+-        updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
+-        // Disable silent update downloads — updates should only apply
+-        // via explicit user action ("Check for Updates..." / Install),
+-        // so an automatic update can't be mistaken for a silent crash.
+-        updaterController.updater.automaticallyDownloadsUpdates = false
++        ForkUpdateService.shared.start()
++        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
++        pressure.setEventHandler { [weak self] in
++            MainActor.assumeIsolated { self?.releaseIdleOverlayPool() }
++        }
++        pressure.resume()
++        memoryPressureSource = pressure
+         setupMainMenu()
+         setupStatusBar()
+         DistributedNotificationCenter.default().addObserver(
+@@ -356,16 +359,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+             name: .init("macshot.pinFromHistory"), object: nil
+         )
+ 
+-        // Check screen recording permission. If not yet granted, show the
+-        // custom onboarding window instead of letting macOS throw its own dialogs.
+-        PermissionOnboardingController.checkPermissionSync { [weak self] granted in
+-            guard let self = self else { return }
+-            if granted {
+-                self.markScreenCaptureURLsReady()
+-            } else {
+-                self.showOnboarding()
+-            }
+-        }
++        // Preflight can be stale after a signing change. Do not treat it as
++        // a launch gate: the actual user-requested SCK capture is authoritative.
++        // Background prewarming remains limited to already-authorized apps.
++        markScreenCaptureURLsReady()
+ 
+         // Replay requests on the next run-loop turn so AppKit has completely
+         // finished its launch lifecycle before an action presents UI or starts
+@@ -387,7 +384,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+             return
+         }
+         let oc = PermissionOnboardingController()
+-        oc.onPermissionGranted = { [weak self] in
++        oc.onContinue = { [weak self] in
+             guard let self = self else { return }
+             self.onboardingController = nil
+             self.markScreenCaptureURLsReady()
+@@ -411,6 +408,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+         // than creating fresh. This is what keeps captures fast — WindowServer
+         // caches composition state per-window, and reused windows stay hot.
+         rebuildOverlayPool()
++        scheduleIdleOverlayCleanup()
+     }
+ 
+     private func markScreenCaptureURLsReady() {
+@@ -432,6 +430,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+     /// Rebuilt on screen-config change.
+     private var overlayControllerPool: [ObjectIdentifier: OverlayWindowController] = [:]
+ 
++    /// Keep rapid successive captures warm, then release hidden windows,
++    /// toolbar views and their graphics surfaces when no session uses them.
++    private func scheduleIdleOverlayCleanup() {
++        idleOverlayCleanup?.cancel()
++        let cleanup = DispatchWorkItem { [weak self] in
++            MainActor.assumeIsolated { self?.releaseIdleOverlayPool() }
++        }
++        idleOverlayCleanup = cleanup
++        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: cleanup)
++    }
++
++    private func releaseIdleOverlayPool() {
++        guard !isCapturing, recordingEngine == nil, overlayControllers.isEmpty else { return }
++        idleOverlayCleanup?.cancel()
++        idleOverlayCleanup = nil
++        autoreleasepool {
++            for controller in overlayControllerPool.values { controller.tearDown() }
++            overlayControllerPool.removeAll()
++        }
++    }
++
+     private func rebuildOverlayPool() {
+         // Tear down stale controllers (screens removed, etc.) before rebuilding.
+         for (_, controller) in overlayControllerPool {
+@@ -1238,6 +1257,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+         guard !isCapturing else { return }
+         // Don't allow captures while recording
+         guard recordingEngine == nil else { return }
++        idleOverlayCleanup?.cancel()
++        idleOverlayCleanup = nil
+         let trace = makeCaptureTimingTrace()
+         captureTimingTrace = trace
+         trace?.mark("startCapture entered fromMenu=\(fromMenu)")
+@@ -1447,9 +1468,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+                 captures = await ScreenCaptureManager.captureAllScreensImmediatelySCK(
+                     timing: { label in trace?.mark(label) })
+             }
+-            let finalCaptures = captures ?? ScreenCaptureManager.captureAllScreensImmediately(
+-                context: captureContext,
+-                timing: { label in trace?.mark(label) })
++            // Legacy capture without access can return only wallpaper/our own
++            // windows. Do not present that as a successful screenshot.
++            let finalCaptures: [ScreenCapture]
++            if let captures, !captures.isEmpty {
++                finalCaptures = captures
++            } else if CGPreflightScreenCaptureAccess() {
++                finalCaptures = ScreenCaptureManager.captureAllScreensImmediately(
++                    context: captureContext,
++                    timing: { label in trace?.mark(label) })
++            } else {
++                finalCaptures = []
++            }
+             trace?.mark("background screenshot end count=\(finalCaptures.count)")
+             await MainActor.run {
+                 guard let self = self, self.isCapturing,
+@@ -1628,6 +1658,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+         }
+         captureTimingTrace?.mark("overlay controllers dismissed")
+         isCapturing = false
++        scheduleIdleOverlayCleanup()
+         // Restore hidden thumbnails
+         measureCaptureTiming("restore thumbnails") {
+             for tc in thumbnailControllers { tc.showWindow() }
+@@ -2334,17 +2365,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+             if url.scheme == "macshot" {
+                 let urlSchemeEnabled = UserDefaults.standard.object(forKey: "urlSchemeEnabled") as? Bool ?? true
+                 guard urlSchemeEnabled else { continue }
+-                if Self.screenCaptureURLActions.contains(url.host ?? "") {
+-                    if !isReadyForScreenCaptureURLs,
+-                       PermissionOnboardingController.hasScreenRecordingPermission() {
+-                        markScreenCaptureURLsReady()
+-                    }
+-                    if !isReadyForScreenCaptureURLs {
+-                        pendingScreenCaptureURLs.append(url)
+-                        showOnboarding()
+-                        continue
+-                    }
+-                }
++                // Capture URLs follow the same real-capture path as hotkeys;
++                // a false preflight result must not prevent a working SCK capture.
+                 handleURLSchemeAction(url)
+                 continue
+             }
+@@ -2414,25 +2436,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
+                 self?.setupMainMenu()
+             }
+         }
+-        settingsController?.showWindow()
++        settingsController?.onClose = { [weak self] closed in
++            self?.lastSettingsTabID = closed.selectedTabID
++            // Let AppKit finish delivering windowWillClose before freeing the
++            // controller and its seven tabs. Reopening in the meantime is safe.
++            DispatchQueue.main.async { [weak self, weak closed] in
++                guard let self, let closed,
++                      self.settingsController === closed,
++                      closed.window?.isVisible != true else { return }
++                self.settingsController = nil
++            }
++        }
++        settingsController?.showWindow(initialTabID: lastSettingsTabID)
+     }
+ 
+     // MARK: - Quit
+ 
+     @objc private func checkForUpdates() {
+-        NSApp.activate(ignoringOtherApps: true)
+-        updaterController.checkForUpdates(nil)
++        ForkUpdateService.shared.check(manual: true)
+     }
+ 
+     @objc private func quitApp() {
+         NSApp.terminate(nil)
+     }
+ 
+-    // MARK: - SPUUpdaterDelegate
+ 
+-    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+-        UserDefaults.standard.bool(forKey: "betaUpdatesEnabled") ? ["beta"] : []
+-    }
+ }
+ 
+ // MARK: - OverlayWindowControllerDelegate
+diff --git a/macshot/Capture/ScreenCaptureManager.swift b/macshot/Capture/ScreenCaptureManager.swift
+index 78ba543..f529dd8 100644
+--- a/macshot/Capture/ScreenCaptureManager.swift
++++ b/macshot/Capture/ScreenCaptureManager.swift
+@@ -45,6 +45,8 @@ class ScreenCaptureManager {
+     /// Pre-warm the shareable content cache so the next capture is instant.
+     /// Call this when the menu bar opens or a hotkey is pressed — before the actual capture starts.
+     static func prewarm() {
++        // Merely opening settings/menus must not request fresh screen access.
++        guard CGPreflightScreenCaptureAccess() else { return }
+         Task {
+             _ = try? await shareableContent()
+         }
+diff --git a/macshot/Info.plist b/macshot/Info.plist
+index 642e863..dc50f25 100644
+--- a/macshot/Info.plist
++++ b/macshot/Info.plist
+@@ -49,16 +49,8 @@
+ 	<string>macshot can record microphone audio during screen recordings.</string>
+ 	<key>NSCameraUsageDescription</key>
+ 	<string>macshot can show a webcam overlay during screen recordings.</string>
+-	<key>SUFeedURL</key>
+-	<string>https://raw.githubusercontent.com/sw33tLie/macshot/main/appcast.xml</string>
+-	<key>SUPublicEDKey</key>
+-	<string>+5RTT9lGyoeOYAYuNfCdPhxugmruYvRDyFXgk6VPY1c=</string>
+-	<key>SUScheduledCheckInterval</key>
+-	<integer>86400</integer>
+ 	<key>SUEnableAutomaticChecks</key>
+ 	<true/>
+-	<key>SUEnableInstallerLauncherService</key>
+-	<true/>
+ 	<key>NSSupportsAutomaticTermination</key>
+ 	<false/>
+ </dict>
+diff --git a/macshot/Services/ImageEncoder.swift b/macshot/Services/ImageEncoder.swift
+index e1e9615..21ddf20 100644
+--- a/macshot/Services/ImageEncoder.swift
++++ b/macshot/Services/ImageEncoder.swift
+@@ -178,7 +178,7 @@ enum ImageEncoder {
+     private static let clipboardGenerationLock = NSLock()
+     private static var clipboardGeneration = 0
+ 
+-    /// No file URL: it points into our sandbox, which Teams/RDP/web apps prefer but can't read (#309, #393).
++    /// Image bytes remain the first clipboard item; Finder gets a separate file item.
+     static func copyToClipboard(_ image: NSImage) {
+         let pasteboard = NSPasteboard.general
+         let generation = beginClipboardCopy()
+@@ -193,12 +193,18 @@ enum ImageEncoder {
+ 
+             let tiffData = encodeWithCGImageDestination(cgImage: pixels, type: "public.tiff", lossyQuality: nil)
+ 
++            let fileURL = try? FinderClipboard.createFile(pngData: pngData)
++
+             DispatchQueue.main.async {
+-                guard isCurrentClipboardCopy(generation), pasteboard.changeCount == changeCount else { return }
++                guard isCurrentClipboardCopy(generation), pasteboard.changeCount == changeCount else {
++                    if let fileURL { try? FileManager.default.removeItem(at: fileURL) }
++                    return
++                }
+                 writeImagePasteboard(
+                     pasteboard,
+                     pngData: pngData,
+-                    tiffData: tiffData
++                    tiffData: tiffData,
++                    fileURL: fileURL
+                 )
+             }
+         }
+@@ -220,18 +226,9 @@ enum ImageEncoder {
+     private static func writeImagePasteboard(
+         _ pasteboard: NSPasteboard,
+         pngData: Data,
+-        tiffData: Data?
++        tiffData: Data?,
++        fileURL: URL?
+     ) {
+-        pasteboard.clearContents()
+-
+-        var types: [NSPasteboard.PasteboardType] = [.png]
+-        if tiffData != nil {
+-            types.append(.tiff)
+-        }
+-        pasteboard.declareTypes(types, owner: nil)
+-        pasteboard.setData(pngData, forType: .png)
+-        if let tiffData {
+-            pasteboard.setData(tiffData, forType: .tiff)
+-        }
++        FinderClipboard.write(pasteboard, pngData: pngData, tiffData: tiffData, fileURL: fileURL)
+     }
+ }
+diff --git a/macshot/UI/Windows/PermissionOnboardingController.swift b/macshot/UI/Windows/PermissionOnboardingController.swift
+index 2a249d7..1bd8e20 100644
+--- a/macshot/UI/Windows/PermissionOnboardingController.swift
++++ b/macshot/UI/Windows/PermissionOnboardingController.swift
+@@ -6,8 +6,8 @@ import CoreGraphics
+ /// macOS throw its own generic dialogs.
+ class PermissionOnboardingController: NSWindowController {
+ 
+-    // Called when the user has granted permission and we're ready to go
+-    var onPermissionGranted: (() -> Void)?
++    // Dismisses the guide; permission is still enforced by the actual capture.
++    var onContinue: (() -> Void)?
+ 
+     /// Called when the window closes without permission being granted (e.g. the
+     /// user dismisses it with the title-bar red-X), so the owner can drop its
+@@ -130,7 +130,7 @@ class PermissionOnboardingController: NSWindowController {
+         let contBtn = NSButton(title: L("Continue"), target: self, action: #selector(continueClicked))
+         contBtn.bezelStyle = .rounded
+         contBtn.controlSize = .large
+-        contBtn.isHidden = true
++        contBtn.isHidden = false
+         contBtn.keyEquivalent = "\r"
+         contBtn.translatesAutoresizingMaskIntoConstraints = false
+         cv.addSubview(contBtn)
+@@ -187,8 +187,8 @@ class PermissionOnboardingController: NSWindowController {
+ 
+     func show() {
+         // Reset granted state each time we show — handles the revoke-then-reshown case.
+-        // CGPreflightScreenCaptureAccess() caches true within a process lifetime, so
+-        // we cannot rely on it after revocation. We reset here so polling starts fresh.
++        // Reset our UI state; this does not reset the OS preflight cache.
++        // Continue remains available so a stale false result cannot trap the user.
+         permissionGranted = false
+ 
+         // Reset UI back to initial state in case this controller is being reused
+@@ -198,7 +198,7 @@ class PermissionOnboardingController: NSWindowController {
+         statusLabel?.stringValue = L("Screen Recording not yet granted")
+         statusLabel?.textColor = .secondaryLabelColor
+         actionButton?.isHidden = false
+-        continueButton?.isHidden = true
++        continueButton?.isHidden = false
+ 
+         window?.center()
+         window?.makeKeyAndOrderFront(nil)
+@@ -273,7 +273,7 @@ class PermissionOnboardingController: NSWindowController {
+         pollTimer?.invalidate()
+         pollTimer = nil
+         window?.orderOut(nil)
+-        onPermissionGranted?()
++        onContinue?()
+     }
+ }
+ 
+@@ -288,8 +288,8 @@ extension PermissionOnboardingController: NSWindowDelegate {
+         // gap), honor the granted path so prewarm still runs; otherwise it's a
+         // plain dismissal.
+         if permissionGranted {
+-            let granted = onPermissionGranted
+-            onPermissionGranted = nil
++            let granted = onContinue
++            onContinue = nil
+             onClose = nil
+             granted?()
+         } else {
+diff --git a/macshot/UI/Windows/SettingsWindowController.swift b/macshot/UI/Windows/SettingsWindowController.swift
+index f93d476..1262f69 100644
+--- a/macshot/UI/Windows/SettingsWindowController.swift
++++ b/macshot/UI/Windows/SettingsWindowController.swift
+@@ -149,6 +149,9 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+     private var scrollFrozenDetectionCheckbox: NSButton!
+     private var languagePopup: NSPopUpButton!
+ 
++    var onClose: ((SettingsWindowController) -> Void)?
++    var selectedTabID: String { currentTabID }
++
+     var onHotkeyChanged: (() -> Void)?
+     var onEditorCommandShortcutChanged: (() -> Void)?
+ 
+@@ -394,6 +397,13 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+         let clipView = scroll.contentView
+         scroll.documentView = stack
+ 
++        // Give every settings row a bounded width so localized notes wrap
++        // inside the scroll viewport instead of extending beyond its edge.
++        for row in stack.arrangedSubviews where !(row is NSTextField) {
++            row.translatesAutoresizingMaskIntoConstraints = false
++            row.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
++        }
++
+         NSLayoutConstraint.activate([
+             stack.topAnchor.constraint(equalTo: clipView.topAnchor),
+             stack.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
+@@ -516,6 +526,13 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+         stack.addArrangedSubview(indented(betaUpdateCheckbox))
+         stack.setCustomSpacing(20, after: stack.arrangedSubviews.last!)
+ 
++        let updateSource = NSTextField(wrappingLabelWithString: "TC023456-sys/Snaplet · Snaplet")
++        updateSource.isSelectable = true
++        updateSource.font = NSFont.systemFont(ofSize: 11)
++        updateSource.textColor = .secondaryLabelColor
++        stack.addArrangedSubview(indented(updateSource))
++        stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
++
+         // ── Appearance ───────────────────────────────────────
+         stack.addArrangedSubview(sectionHeader(L("Appearance")))
+         stack.setCustomSpacing(10, after: stack.arrangedSubviews.last!)
+@@ -528,7 +545,7 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+         themePresetPopup.addItem(withTitle: L("Custom"))
+         themePresetPopup.target = self
+         themePresetPopup.action = #selector(themePresetChanged(_:))
+-        stack.addArrangedSubview(indented(labeledRow(L("Theme:"), controls: [themePresetPopup])))
++        stack.addArrangedSubview(labeledRow(L("Theme:"), controls: [themePresetPopup]))
+         stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
+ 
+         // Three color wells in a single row with labels underneath
+@@ -920,6 +937,26 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+         stack.addArrangedSubview(labeledRow(L("Save folder:"), controls: [savePathField, browseBtn]))
+         stack.setCustomSpacing(8, after: stack.arrangedSubviews.last!)
+ 
++        // The copy-to-Finder files use their own cache, separate from Save folder.
++        let clipboardFolderButton = NSButton(title: L("Open in Finder"), target: self,
++                                             action: #selector(openFinderClipboardFolder(_:)))
++        clipboardFolderButton.bezelStyle = .rounded
++        stack.addArrangedSubview(labeledRow(L("Finder copy folder:"), controls: [clipboardFolderButton]))
++        stack.setCustomSpacing(4, after: stack.arrangedSubviews.last!)
++
++        let clipboardPath = NSTextField(wrappingLabelWithString: FinderClipboard.directoryURL.path)
++        clipboardPath.isSelectable = true
++        clipboardPath.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
++        clipboardPath.lineBreakMode = .byCharWrapping
++        stack.addArrangedSubview(indented(clipboardPath))
++        stack.setCustomSpacing(4, after: stack.arrangedSubviews.last!)
++
++        let clipboardNote = NSTextField(wrappingLabelWithString: L("Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again."))
++        clipboardNote.font = NSFont.systemFont(ofSize: 11)
++        clipboardNote.textColor = .secondaryLabelColor
++        stack.addArrangedSubview(indented(clipboardNote))
++        stack.setCustomSpacing(12, after: stack.arrangedSubviews.last!)
++
+         copyPathAfterSaveCheckbox = NSButton(
+             checkboxWithTitle: L("Copy Path"),
+             target: self,
+@@ -2478,16 +2515,21 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+ 
+     /// Indents a view to align with the control column.
+     private func indented(_ view: NSView) -> NSView {
+-        let spacer = NSView()
+-        spacer.translatesAutoresizingMaskIntoConstraints = false
+-        // Label column + row spacing (8pt).
+-        spacer.widthAnchor.constraint(equalToConstant: Self.labelColumnWidth + 8).isActive = true
+-
+-        let row = NSStackView(views: [spacer, view])
+-        row.orientation = .horizontal
+-        row.spacing = 0
+-        row.alignment = .centerY
++        let row = NSView()
+         row.translatesAutoresizingMaskIntoConstraints = false
++        view.translatesAutoresizingMaskIntoConstraints = false
++        row.addSubview(view)
++        NSLayoutConstraint.activate([
++            view.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: Self.labelColumnWidth + 8),
++            view.topAnchor.constraint(equalTo: row.topAnchor),
++            view.bottomAnchor.constraint(equalTo: row.bottomAnchor),
++            view.trailingAnchor.constraint(lessThanOrEqualTo: row.trailingAnchor),
++        ])
++        if let label = view as? NSTextField, label.cell?.wraps == true {
++            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
++            label.trailingAnchor.constraint(equalTo: row.trailingAnchor).isActive = true
++        }
++
+         return row
+     }
+ 
+@@ -2770,6 +2812,19 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+ 
+     // MARK: - Actions
+ 
++    @objc private func openFinderClipboardFolder(_ sender: NSButton) {
++        let folder = FinderClipboard.directoryURL
++        do {
++            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
++                                                    attributes: [.posixPermissions: 0o700])
++            if !NSWorkspace.shared.open(folder) {
++                presentBackupInfo(title: L("Open in Finder"), message: L("Unable to open the Finder copy folder."))
++            }
++        } catch {
++            presentBackupInfo(title: L("Open in Finder"), message: error.localizedDescription)
++        }
++    }
++
+     @objc private func browseSavePath(_ sender: NSButton) {
+         let panel = NSOpenPanel()
+         panel.canChooseDirectories = true
+@@ -3332,6 +3387,7 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+ 
+     @objc private func autoUpdateChanged(_ sender: NSButton) {
+         UserDefaults.standard.set(sender.state == .on, forKey: "SUEnableAutomaticChecks")
++        if sender.state == .on { ForkUpdateService.shared.check(manual: false) }
+     }
+ 
+     @objc private func betaUpdateChanged(_ sender: NSButton) {
+@@ -3348,7 +3404,11 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+         }
+     }
+ 
+-    func showWindow() {
++    func showWindow(initialTabID: String? = nil) {
++        if let initialTabID {
++            showTab(id: initialTabID)
++            window?.toolbar?.selectedItemIdentifier = NSToolbarItem.Identifier(initialTabID)
++        }
+         loadSettings()
+         window?.center()
+         window?.makeKeyAndOrderFront(nil)
+@@ -3361,6 +3421,7 @@ class SettingsWindowController: NSWindowController, NSToolbarDelegate, NSWindowD
+         stopCommandShortcutRecording()
+         stopToolShortcutRecording()
+         (NSApp.delegate as? AppDelegate)?.returnFocusIfNeeded()
++        onClose?(self)
+     }
+ }
+ 
+diff --git a/macshot/ar.lproj/Localizable.strings b/macshot/ar.lproj/Localizable.strings
+index 2e7963d..bf1e221 100644
+--- a/macshot/ar.lproj/Localizable.strings
++++ b/macshot/ar.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "تشغيل";
+ "Mute" = "كتم الصوت";
+ "Unmute" = "إلغاء كتم الصوت";
++
++"Open in Finder" = "فتح في Finder";
++
++"Finder copy folder:" = "مجلد نسخ Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "ينشئ النسخ ملفات PNG هنا للصقها في Finder. يمكنك حذف الملفات غير المطلوبة. إذا حذفت الملف المنسوخ الحالي، انسخ الصورة مجددًا قبل اللصق.";
++
++"Unable to open the Finder copy folder." = "تعذر فتح مجلد نسخ Finder.";
+diff --git a/macshot/bg.lproj/Localizable.strings b/macshot/bg.lproj/Localizable.strings
+index 761db66..055c41c 100644
+--- a/macshot/bg.lproj/Localizable.strings
++++ b/macshot/bg.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Възпроизвеждане";
+ "Mute" = "Заглушаване";
+ "Unmute" = "Включване на звука";
++
++"Open in Finder" = "Отвори във Finder";
++
++"Finder copy folder:" = "Папка за копиране във Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Копирането създава PNG файлове тук за поставяне във Finder. Можете да изтриете ненужните файлове. След изтриване на текущия копиран файл копирайте отново, за да поставите.";
++
++"Unable to open the Finder copy folder." = "Папката за копиране във Finder не може да се отвори.";
+diff --git a/macshot/bn.lproj/Localizable.strings b/macshot/bn.lproj/Localizable.strings
+index 2caade7..3890b2a 100644
+--- a/macshot/bn.lproj/Localizable.strings
++++ b/macshot/bn.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "চালান";
+ "Mute" = "শব্দ বন্ধ করুন";
+ "Unmute" = "শব্দ চালু করুন";
++
++"Open in Finder" = "Finder-এ খুলুন";
++
++"Finder copy folder:" = "Finder কপি ফোল্ডার:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Finder-এ পেস্ট করার জন্য কপি এখানে PNG ফাইল তৈরি করে। অপ্রয়োজনীয় ফাইল মুছতে পারেন। বর্তমান কপি করা ফাইল মুছলে পেস্ট করার আগে আবার কপি করুন।";
++
++"Unable to open the Finder copy folder." = "Finder কপি ফোল্ডার খোলা যায়নি।";
+diff --git a/macshot/ca.lproj/Localizable.strings b/macshot/ca.lproj/Localizable.strings
+index e9c8198..2b704cb 100644
+--- a/macshot/ca.lproj/Localizable.strings
++++ b/macshot/ca.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Reprodueix";
+ "Mute" = "Silencia";
+ "Unmute" = "Activa el so";
++
++"Open in Finder" = "Obre al Finder";
++
++"Finder copy folder:" = "Carpeta de còpia del Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Copiar crea fitxers PNG aquí per enganxar-los al Finder. Pots eliminar els fitxers innecessaris. Si elimines el fitxer copiat actual, torna a copiar abans d’enganxar.";
++
++"Unable to open the Finder copy folder." = "No es pot obrir la carpeta de còpia del Finder.";
+diff --git a/macshot/cs.lproj/Localizable.strings b/macshot/cs.lproj/Localizable.strings
+index c1cd8ea..df703ab 100644
+--- a/macshot/cs.lproj/Localizable.strings
++++ b/macshot/cs.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Přehrát";
+ "Mute" = "Ztlumit";
+ "Unmute" = "Zapnout zvuk";
++
++"Open in Finder" = "Otevřít ve Finderu";
++
++"Finder copy folder:" = "Složka kopií pro Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopírování zde vytváří PNG pro vložení do Finderu. Nepotřebné soubory můžete smazat. Po odstranění aktuálního PNG je před dalším vložením nutné znovu kopírovat.";
++
++"Unable to open the Finder copy folder." = "Složku kopií pro Finder nelze otevřít.";
+diff --git a/macshot/da.lproj/Localizable.strings b/macshot/da.lproj/Localizable.strings
+index 9bdc660..bb01221 100644
+--- a/macshot/da.lproj/Localizable.strings
++++ b/macshot/da.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Afspil";
+ "Mute" = "Slå lyden fra";
+ "Unmute" = "Slå lyden til";
++
++"Open in Finder" = "Åbn i Finder";
++
++"Finder copy folder:" = "Kopimappe til Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopiering opretter PNG-filer her til indsættelse i Finder. Du kan slette unødvendige filer. Hvis du sletter den aktuelt kopierede fil, skal du kopiere igen før indsættelse.";
++
++"Unable to open the Finder copy folder." = "Kopimappen til Finder kunne ikke åbnes.";
+diff --git a/macshot/de.lproj/Localizable.strings b/macshot/de.lproj/Localizable.strings
+index 7922176..b517fa3 100644
+--- a/macshot/de.lproj/Localizable.strings
++++ b/macshot/de.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Wiedergeben";
+ "Mute" = "Stummschalten";
+ "Unmute" = "Ton einschalten";
++
++"Open in Finder" = "Im Finder öffnen";
++
++"Finder copy folder:" = "Finder-Kopierordner:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Beim Kopieren entstehen hier PNG-Dateien zum Einfügen im Finder. Nicht benötigte Dateien können gelöscht werden. Nach dem Löschen der aktuell kopierten Datei vor dem Einfügen erneut kopieren.";
++
++"Unable to open the Finder copy folder." = "Der Finder-Kopierordner konnte nicht geöffnet werden.";
+diff --git a/macshot/el.lproj/Localizable.strings b/macshot/el.lproj/Localizable.strings
+index 7d15a80..da12741 100644
+--- a/macshot/el.lproj/Localizable.strings
++++ b/macshot/el.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Αναπαραγωγή";
+ "Mute" = "Σίγαση";
+ "Unmute" = "Κατάργηση σίγασης";
++
++"Open in Finder" = "Άνοιγμα στο Finder";
++
++"Finder copy folder:" = "Φάκελος αντιγραφής Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Η αντιγραφή δημιουργεί εδώ PNG για επικόλληση στο Finder. Μπορείτε να διαγράψετε όσα δεν χρειάζεστε. Αν διαγράψετε το τρέχον αντιγραμμένο αρχείο, αντιγράψτε ξανά πριν την επικόλληση.";
++
++"Unable to open the Finder copy folder." = "Δεν ήταν δυνατό το άνοιγμα του φακέλου αντιγραφής Finder.";
+diff --git a/macshot/en.lproj/Localizable.strings b/macshot/en.lproj/Localizable.strings
+index 1db1cf3..948483c 100644
+--- a/macshot/en.lproj/Localizable.strings
++++ b/macshot/en.lproj/Localizable.strings
+@@ -710,3 +710,11 @@
+ "Play" = "Play";
+ "Mute" = "Mute";
+ "Unmute" = "Unmute";
++
++"Open in Finder" = "Open in Finder";
++
++"Finder copy folder:" = "Finder copy folder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again.";
++
++"Unable to open the Finder copy folder." = "Unable to open the Finder copy folder.";
+diff --git a/macshot/es.lproj/Localizable.strings b/macshot/es.lproj/Localizable.strings
+index 09be321..0ee80a0 100644
+--- a/macshot/es.lproj/Localizable.strings
++++ b/macshot/es.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Reproducir";
+ "Mute" = "Silenciar";
+ "Unmute" = "Activar sonido";
++
++"Open in Finder" = "Abrir en Finder";
++
++"Finder copy folder:" = "Carpeta de copias de Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Copiar crea archivos PNG aquí para pegarlos en Finder. Puedes borrar los que no necesites. Si borras el archivo copiado actual, vuelve a copiar antes de pegar.";
++
++"Unable to open the Finder copy folder." = "No se pudo abrir la carpeta de copias de Finder.";
+diff --git a/macshot/fa.lproj/Localizable.strings b/macshot/fa.lproj/Localizable.strings
+index 0f75667..f01083e 100644
+--- a/macshot/fa.lproj/Localizable.strings
++++ b/macshot/fa.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "پخش";
+ "Mute" = "بی‌صدا کردن";
+ "Unmute" = "فعال کردن صدا";
++
++"Open in Finder" = "باز کردن در Finder";
++
++"Finder copy folder:" = "پوشهٔ کپی Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "کپی کردن در این پوشه فایل PNG می‌سازد تا در Finder جای‌گذاری شود. فایل‌های اضافی را می‌توانید حذف کنید. پس از حذف فایل کپی‌شدهٔ فعلی، پیش از جای‌گذاری دوباره کپی کنید.";
++
++"Unable to open the Finder copy folder." = "پوشهٔ کپی Finder باز نشد.";
+diff --git a/macshot/fi.lproj/Localizable.strings b/macshot/fi.lproj/Localizable.strings
+index bf5c98a..5b044ad 100644
+--- a/macshot/fi.lproj/Localizable.strings
++++ b/macshot/fi.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Toista";
+ "Mute" = "Mykistä";
+ "Unmute" = "Poista mykistys";
++
++"Open in Finder" = "Avaa Finderissa";
++
++"Finder copy folder:" = "Finder-kopioiden kansio:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopiointi luo tähän PNG-tiedostoja Finderiin liittämistä varten. Tarpeettomat tiedostot voi poistaa. Jos poistat nykyisen kopioidun tiedoston, kopioi uudelleen ennen liittämistä.";
++
++"Unable to open the Finder copy folder." = "Finder-kopioiden kansiota ei voitu avata.";
+diff --git a/macshot/fil.lproj/Localizable.strings b/macshot/fil.lproj/Localizable.strings
+index 7a1a921..12bd85c 100644
+--- a/macshot/fil.lproj/Localizable.strings
++++ b/macshot/fil.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "I-play";
+ "Mute" = "I-mute";
+ "Unmute" = "I-unmute";
++
++"Open in Finder" = "Buksan sa Finder";
++
++"Finder copy folder:" = "Folder ng kopya para sa Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Lumilikha ang pagkopya ng PNG dito para i-paste sa Finder. Maaari mong burahin ang hindi kailangan. Kapag binura ang kasalukuyang kinopyang file, kumopya muli bago mag-paste.";
++
++"Unable to open the Finder copy folder." = "Hindi mabuksan ang folder ng kopya para sa Finder.";
+diff --git a/macshot/fr.lproj/Localizable.strings b/macshot/fr.lproj/Localizable.strings
+index 8a50384..8c45941 100644
+--- a/macshot/fr.lproj/Localizable.strings
++++ b/macshot/fr.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Lire";
+ "Mute" = "Couper le son";
+ "Unmute" = "Rétablir le son";
++
++"Open in Finder" = "Ouvrir dans le Finder";
++
++"Finder copy folder:" = "Fichiers pour Finder :";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Cette action crée ici des fichiers PNG à coller dans le Finder. Vous pouvez supprimer les fichiers inutiles. Si vous supprimez le fichier actuellement copié, copiez à nouveau avant de coller.";
++
++"Unable to open the Finder copy folder." = "Impossible d’ouvrir le dossier des fichiers pour Finder.";
+diff --git a/macshot/he.lproj/Localizable.strings b/macshot/he.lproj/Localizable.strings
+index 8fedd3a..014c6a5 100644
+--- a/macshot/he.lproj/Localizable.strings
++++ b/macshot/he.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "הפעל";
+ "Mute" = "השתק";
+ "Unmute" = "בטל השתקה";
++
++"Open in Finder" = "פתיחה ב-Finder";
++
++"Finder copy folder:" = "תיקיית העתקה ל-Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "העתקה יוצרת כאן קובצי PNG להדבקה ב-Finder. אפשר למחוק קבצים מיותרים. אם מוחקים את הקובץ המועתק הנוכחי, יש להעתיק שוב לפני ההדבקה.";
++
++"Unable to open the Finder copy folder." = "לא ניתן לפתוח את תיקיית ההעתקה ל-Finder.";
+diff --git a/macshot/hi.lproj/Localizable.strings b/macshot/hi.lproj/Localizable.strings
+index f44ca1f..a72904c 100644
+--- a/macshot/hi.lproj/Localizable.strings
++++ b/macshot/hi.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "चलाएँ";
+ "Mute" = "म्यूट करें";
+ "Unmute" = "अनम्यूट करें";
++
++"Open in Finder" = "Finder में खोलें";
++
++"Finder copy folder:" = "Finder कॉपी फ़ोल्डर:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "कॉपी करने पर Finder में पेस्ट करने के लिए यहाँ PNG फ़ाइलें बनती हैं। अनावश्यक फ़ाइलें हटा सकते हैं। वर्तमान कॉपी की गई फ़ाइल हटाने पर पेस्ट करने से पहले फिर कॉपी करें।";
++
++"Unable to open the Finder copy folder." = "Finder कॉपी फ़ोल्डर नहीं खुल सका।";
+diff --git a/macshot/hr.lproj/Localizable.strings b/macshot/hr.lproj/Localizable.strings
+index ebf134c..221243d 100644
+--- a/macshot/hr.lproj/Localizable.strings
++++ b/macshot/hr.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Reproduciraj";
+ "Mute" = "Isključi zvuk";
+ "Unmute" = "Uključi zvuk";
++
++"Open in Finder" = "Otvori u Finderu";
++
++"Finder copy folder:" = "Mapa kopija za Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopiranje ovdje stvara PNG datoteke za lijepljenje u Finder. Nepotrebne datoteke možete obrisati. Ako obrišete trenutačno kopiranu datoteku, ponovno kopirajte prije lijepljenja.";
++
++"Unable to open the Finder copy folder." = "Mapa kopija za Finder ne može se otvoriti.";
+diff --git a/macshot/hu.lproj/Localizable.strings b/macshot/hu.lproj/Localizable.strings
+index 08840d8..ae8d3cf 100644
+--- a/macshot/hu.lproj/Localizable.strings
++++ b/macshot/hu.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Lejátszás";
+ "Mute" = "Némítás";
+ "Unmute" = "Némítás feloldása";
++
++"Open in Finder" = "Megnyitás a Finderben";
++
++"Finder copy folder:" = "Finder másolási mappa:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "A másolás itt PNG-fájlokat hoz létre a Finderbe illesztéshez. A felesleges fájlokat törölheti. Az aktuálisan másolt fájl törlése után a beillesztés előtt másoljon újra.";
++
++"Unable to open the Finder copy folder." = "A Finder másolási mappája nem nyitható meg.";
+diff --git a/macshot/id.lproj/Localizable.strings b/macshot/id.lproj/Localizable.strings
+index 97cb211..94aa412 100644
+--- a/macshot/id.lproj/Localizable.strings
++++ b/macshot/id.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Putar";
+ "Mute" = "Bisukan";
+ "Unmute" = "Aktifkan suara";
++
++"Open in Finder" = "Buka di Finder";
++
++"Finder copy folder:" = "Folder salinan Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Menyalin membuat file PNG di sini untuk ditempel di Finder. Anda dapat menghapus file yang tidak diperlukan. Jika file yang sedang disalin dihapus, salin lagi sebelum menempel.";
++
++"Unable to open the Finder copy folder." = "Folder salinan Finder tidak dapat dibuka.";
+diff --git a/macshot/it.lproj/Localizable.strings b/macshot/it.lproj/Localizable.strings
+index be3d9e0..be4e7ad 100644
+--- a/macshot/it.lproj/Localizable.strings
++++ b/macshot/it.lproj/Localizable.strings
+@@ -692,3 +692,11 @@
+ "Play" = "Riproduci";
+ "Mute" = "Disattiva audio";
+ "Unmute" = "Riattiva audio";
++
++"Open in Finder" = "Apri nel Finder";
++
++"Finder copy folder:" = "Cartella delle copie per Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "La copia crea qui file PNG da incollare nel Finder. Puoi eliminare quelli inutili. Se elimini il file attualmente copiato, copia di nuovo prima di incollare.";
++
++"Unable to open the Finder copy folder." = "Impossibile aprire la cartella delle copie per Finder.";
+diff --git a/macshot/ja.lproj/Localizable.strings b/macshot/ja.lproj/Localizable.strings
+index b2fbbf0..2e313ce 100644
+--- a/macshot/ja.lproj/Localizable.strings
++++ b/macshot/ja.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "再生";
+ "Mute" = "ミュート";
+ "Unmute" = "ミュート解除";
++
++"Open in Finder" = "Finderで開く";
++
++"Finder copy folder:" = "Finderコピー用フォルダ：";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "コピー時にFinderへ貼り付けるためのPNGがここに作成されます。不要なファイルは削除できます。現在コピー中のファイルを削除した場合は、貼り付ける前に再度コピーしてください。";
++
++"Unable to open the Finder copy folder." = "Finderコピー用フォルダを開けませんでした。";
+diff --git a/macshot/ko.lproj/Localizable.strings b/macshot/ko.lproj/Localizable.strings
+index 191e31b..b90c521 100644
+--- a/macshot/ko.lproj/Localizable.strings
++++ b/macshot/ko.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "재생";
+ "Mute" = "음소거";
+ "Unmute" = "음소거 해제";
++
++"Open in Finder" = "Finder에서 열기";
++
++"Finder copy folder:" = "Finder 복사 폴더:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "복사하면 Finder에 붙여넣을 PNG 파일이 여기에 생성됩니다. 필요 없는 파일은 삭제할 수 있습니다. 현재 복사한 파일을 삭제하면 붙여넣기 전에 다시 복사해야 합니다.";
++
++"Unable to open the Finder copy folder." = "Finder 복사 폴더를 열 수 없습니다.";
+diff --git a/macshot/ms.lproj/Localizable.strings b/macshot/ms.lproj/Localizable.strings
+index 47b38fb..6c7c8ea 100644
+--- a/macshot/ms.lproj/Localizable.strings
++++ b/macshot/ms.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Mainkan";
+ "Mute" = "Senyapkan";
+ "Unmute" = "Nyahsenyap";
++
++"Open in Finder" = "Buka dalam Finder";
++
++"Finder copy folder:" = "Folder salinan Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Menyalin menghasilkan fail PNG di sini untuk ditampal dalam Finder. Anda boleh memadam fail yang tidak diperlukan. Jika fail salinan semasa dipadam, salin semula sebelum menampal.";
++
++"Unable to open the Finder copy folder." = "Folder salinan Finder tidak dapat dibuka.";
+diff --git a/macshot/nb.lproj/Localizable.strings b/macshot/nb.lproj/Localizable.strings
+index 89494fd..28cb285 100644
+--- a/macshot/nb.lproj/Localizable.strings
++++ b/macshot/nb.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Spill av";
+ "Mute" = "Demp";
+ "Unmute" = "Slå på lyd";
++
++"Open in Finder" = "Åpne i Finder";
++
++"Finder copy folder:" = "Kopimappe for Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopiering lager PNG-filer her for innliming i Finder. Du kan slette unødvendige filer. Hvis den gjeldende kopierte filen slettes, må du kopiere på nytt før innliming.";
++
++"Unable to open the Finder copy folder." = "Kopimappen for Finder kunne ikke åpnes.";
+diff --git a/macshot/nl.lproj/Localizable.strings b/macshot/nl.lproj/Localizable.strings
+index 07f4657..f2451cd 100644
+--- a/macshot/nl.lproj/Localizable.strings
++++ b/macshot/nl.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Afspelen";
+ "Mute" = "Dempen";
+ "Unmute" = "Dempen opheffen";
++
++"Open in Finder" = "Open in Finder";
++
++"Finder copy folder:" = "Finder-kopieermap:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopiëren maakt hier PNG-bestanden om in Finder te plakken. Je kunt onnodige bestanden verwijderen. Als je het huidige gekopieerde bestand verwijdert, kopieer dan opnieuw voordat je plakt.";
++
++"Unable to open the Finder copy folder." = "De Finder-kopieermap kon niet worden geopend.";
+diff --git a/macshot/pl.lproj/Localizable.strings b/macshot/pl.lproj/Localizable.strings
+index e85d88d..dc18752 100644
+--- a/macshot/pl.lproj/Localizable.strings
++++ b/macshot/pl.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Odtwórz";
+ "Mute" = "Wycisz";
+ "Unmute" = "Włącz dźwięk";
++
++"Open in Finder" = "Otwórz w Finderze";
++
++"Finder copy folder:" = "Folder kopii dla Findera:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopiowanie tworzy tutaj pliki PNG do wklejenia w Finderze. Można usunąć niepotrzebne pliki. Po usunięciu aktualnie skopiowanego pliku skopiuj ponownie przed wklejeniem.";
++
++"Unable to open the Finder copy folder." = "Nie można otworzyć folderu kopii dla Findera.";
+diff --git a/macshot/pt-BR.lproj/Localizable.strings b/macshot/pt-BR.lproj/Localizable.strings
+index 19c8df1..0df8049 100644
+--- a/macshot/pt-BR.lproj/Localizable.strings
++++ b/macshot/pt-BR.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Reproduzir";
+ "Mute" = "Silenciar";
+ "Unmute" = "Ativar som";
++
++"Open in Finder" = "Abrir no Finder";
++
++"Finder copy folder:" = "Pasta de cópias do Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Copiar cria arquivos PNG aqui para colar no Finder. Você pode excluir os desnecessários. Se excluir o arquivo copiado atual, copie novamente antes de colar.";
++
++"Unable to open the Finder copy folder." = "Não foi possível abrir a pasta de cópias do Finder.";
+diff --git a/macshot/pt.lproj/Localizable.strings b/macshot/pt.lproj/Localizable.strings
+index 3e9dfe8..ec9876f 100644
+--- a/macshot/pt.lproj/Localizable.strings
++++ b/macshot/pt.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Reproduzir";
+ "Mute" = "Silenciar";
+ "Unmute" = "Ativar som";
++
++"Open in Finder" = "Abrir no Finder";
++
++"Finder copy folder:" = "Pasta de cópias do Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Copiar cria ficheiros PNG aqui para colar no Finder. Pode eliminar os desnecessários. Se eliminar o ficheiro copiado atual, copie novamente antes de colar.";
++
++"Unable to open the Finder copy folder." = "Não foi possível abrir a pasta de cópias do Finder.";
+diff --git a/macshot/ro.lproj/Localizable.strings b/macshot/ro.lproj/Localizable.strings
+index 65ae25b..406855e 100644
+--- a/macshot/ro.lproj/Localizable.strings
++++ b/macshot/ro.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Redă";
+ "Mute" = "Dezactivează sunetul";
+ "Unmute" = "Activează sunetul";
++
++"Open in Finder" = "Deschide în Finder";
++
++"Finder copy folder:" = "Dosar de copiere pentru Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Copierea creează aici fișiere PNG pentru lipire în Finder. Puteți șterge fișierele inutile. Dacă ștergeți fișierul copiat curent, copiați din nou înainte de lipire.";
++
++"Unable to open the Finder copy folder." = "Dosarul de copiere pentru Finder nu poate fi deschis.";
+diff --git a/macshot/ru.lproj/Localizable.strings b/macshot/ru.lproj/Localizable.strings
+index f315d48..7669b1e 100644
+--- a/macshot/ru.lproj/Localizable.strings
++++ b/macshot/ru.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Воспроизвести";
+ "Mute" = "Выключить звук";
+ "Unmute" = "Включить звук";
++
++"Open in Finder" = "Открыть в Finder";
++
++"Finder copy folder:" = "Папка копий для Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "При копировании здесь создаются PNG для вставки в Finder. Ненужные файлы можно удалить. После удаления текущего скопированного файла скопируйте изображение снова перед вставкой.";
++
++"Unable to open the Finder copy folder." = "Не удалось открыть папку копий для Finder.";
+diff --git a/macshot/sk.lproj/Localizable.strings b/macshot/sk.lproj/Localizable.strings
+index b3373b8..fb2dfa4 100644
+--- a/macshot/sk.lproj/Localizable.strings
++++ b/macshot/sk.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Prehrať";
+ "Mute" = "Stlmiť";
+ "Unmute" = "Zapnúť zvuk";
++
++"Open in Finder" = "Otvoriť vo Finderi";
++
++"Finder copy folder:" = "Priečinok kópií pre Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopírovanie tu vytvára PNG na vloženie do Findera. Nepotrebné súbory môžete odstrániť. Po odstránení aktuálne skopírovaného súboru pred vložením znova kopírujte.";
++
++"Unable to open the Finder copy folder." = "Priečinok kópií pre Finder sa nedá otvoriť.";
+diff --git a/macshot/sr.lproj/Localizable.strings b/macshot/sr.lproj/Localizable.strings
+index f90b78c..f119365 100644
+--- a/macshot/sr.lproj/Localizable.strings
++++ b/macshot/sr.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Репродукуј";
+ "Mute" = "Искључи звук";
+ "Unmute" = "Укључи звук";
++
++"Open in Finder" = "Отвори у Finder-у";
++
++"Finder copy folder:" = "Фасцикла копија за Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Копирање овде прави PNG датотеке за лепљење у Finder. Можете обрисати непотребне датотеке. Ако обришете тренутно копирану датотеку, поново копирајте пре лепљења.";
++
++"Unable to open the Finder copy folder." = "Није могуће отворити фасциклу копија за Finder.";
+diff --git a/macshot/sv.lproj/Localizable.strings b/macshot/sv.lproj/Localizable.strings
+index 597b111..fb58992 100644
+--- a/macshot/sv.lproj/Localizable.strings
++++ b/macshot/sv.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Spela upp";
+ "Mute" = "Stäng av ljud";
+ "Unmute" = "Slå på ljud";
++
++"Open in Finder" = "Öppna i Finder";
++
++"Finder copy folder:" = "Kopieringsmapp för Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopiering skapar PNG-filer här för inklistring i Finder. Du kan radera onödiga filer. Om du raderar den aktuella kopierade filen måste du kopiera igen före inklistring.";
++
++"Unable to open the Finder copy folder." = "Kopieringsmappen för Finder kunde inte öppnas.";
+diff --git a/macshot/ta.lproj/Localizable.strings b/macshot/ta.lproj/Localizable.strings
+index 7667a7c..32def38 100644
+--- a/macshot/ta.lproj/Localizable.strings
++++ b/macshot/ta.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "இயக்கு";
+ "Mute" = "ஒலியை முடக்கு";
+ "Unmute" = "ஒலியை இயக்கு";
++
++"Open in Finder" = "Finder இல் திற";
++
++"Finder copy folder:" = "Finder நகல் கோப்புறை:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Finder இல் ஒட்டுவதற்காக நகலெடுக்கும்போது இங்கு PNG கோப்புகள் உருவாகும். தேவையற்ற கோப்புகளை நீக்கலாம். தற்போது நகலெடுத்த கோப்பை நீக்கினால் ஒட்டுவதற்கு முன் மீண்டும் நகலெடுக்கவும்.";
++
++"Unable to open the Finder copy folder." = "Finder நகல் கோப்புறையைத் திறக்க முடியவில்லை.";
+diff --git a/macshot/th.lproj/Localizable.strings b/macshot/th.lproj/Localizable.strings
+index 98f39ef..0a91594 100644
+--- a/macshot/th.lproj/Localizable.strings
++++ b/macshot/th.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "เล่น";
+ "Mute" = "ปิดเสียง";
+ "Unmute" = "เปิดเสียง";
++
++"Open in Finder" = "เปิดใน Finder";
++
++"Finder copy folder:" = "โฟลเดอร์คัดลอกสำหรับ Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "การคัดลอกจะสร้างไฟล์ PNG ที่นี่เพื่อวางใน Finder คุณลบไฟล์ที่ไม่ต้องการได้ หากลบไฟล์ที่คัดลอกอยู่ ให้คัดลอกใหม่ก่อนวาง";
++
++"Unable to open the Finder copy folder." = "ไม่สามารถเปิดโฟลเดอร์คัดลอกสำหรับ Finder ได้";
+diff --git a/macshot/tr.lproj/Localizable.strings b/macshot/tr.lproj/Localizable.strings
+index e1f7084..1a363c5 100644
+--- a/macshot/tr.lproj/Localizable.strings
++++ b/macshot/tr.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "Oynat";
+ "Mute" = "Sesi kapat";
+ "Unmute" = "Sesi aç";
++
++"Open in Finder" = "Finder’da aç";
++
++"Finder copy folder:" = "Finder kopya klasörü:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Kopyalama, Finder’a yapıştırmak için burada PNG dosyaları oluşturur. Gereksiz dosyaları silebilirsiniz. Geçerli kopyalanan dosyayı silerseniz yapıştırmadan önce yeniden kopyalayın.";
++
++"Unable to open the Finder copy folder." = "Finder kopya klasörü açılamadı.";
+diff --git a/macshot/uk.lproj/Localizable.strings b/macshot/uk.lproj/Localizable.strings
+index b4c69ba..7444815 100644
+--- a/macshot/uk.lproj/Localizable.strings
++++ b/macshot/uk.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Відтворити";
+ "Mute" = "Вимкнути звук";
+ "Unmute" = "Увімкнути звук";
++
++"Open in Finder" = "Відкрити у Finder";
++
++"Finder copy folder:" = "Папка копій для Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Копіювання створює тут PNG для вставлення у Finder. Непотрібні файли можна видалити. Після видалення поточного скопійованого файлу скопіюйте знову перед вставленням.";
++
++"Unable to open the Finder copy folder." = "Не вдалося відкрити папку копій для Finder.";
+diff --git a/macshot/vi.lproj/Localizable.strings b/macshot/vi.lproj/Localizable.strings
+index 21ea0af..bc6cc00 100644
+--- a/macshot/vi.lproj/Localizable.strings
++++ b/macshot/vi.lproj/Localizable.strings
+@@ -709,3 +709,11 @@
+ "Play" = "Phát";
+ "Mute" = "Tắt tiếng";
+ "Unmute" = "Bật tiếng";
++
++"Open in Finder" = "Mở trong Finder";
++
++"Finder copy folder:" = "Thư mục sao chép cho Finder:";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "Sao chép tạo tệp PNG tại đây để dán vào Finder. Bạn có thể xóa các tệp không cần. Nếu xóa tệp vừa sao chép, hãy sao chép lại trước khi dán.";
++
++"Unable to open the Finder copy folder." = "Không thể mở thư mục sao chép cho Finder.";
+diff --git a/macshot/zh-Hans.lproj/Localizable.strings b/macshot/zh-Hans.lproj/Localizable.strings
+index 0c7f71d..fecda92 100644
+--- a/macshot/zh-Hans.lproj/Localizable.strings
++++ b/macshot/zh-Hans.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "播放";
+ "Mute" = "静音";
+ "Unmute" = "取消静音";
++
++"Open in Finder" = "在 Finder 中打开";
++
++"Finder copy folder:" = "Finder 复制文件夹：";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "复制时会在此文件夹生成 PNG，供 Finder 粘贴。可在此删除不需要的文件；删除当前复制的图片后，需重新复制才能再次粘贴。";
++
++"Unable to open the Finder copy folder." = "无法打开 Finder 复制文件夹。";
+diff --git a/macshot/zh-Hant.lproj/Localizable.strings b/macshot/zh-Hant.lproj/Localizable.strings
+index 2341e4e..511a034 100644
+--- a/macshot/zh-Hant.lproj/Localizable.strings
++++ b/macshot/zh-Hant.lproj/Localizable.strings
+@@ -711,3 +711,11 @@
+ "Play" = "播放";
+ "Mute" = "靜音";
+ "Unmute" = "取消靜音";
++
++"Open in Finder" = "在 Finder 中打開";
++
++"Finder copy folder:" = "Finder 複製資料夾：";
++
++"Copy creates PNG files in this folder so Finder can paste them. You can delete unwanted files here. Deleting the currently copied file prevents further Finder pastes until you copy again." = "複製時會在此資料夾產生 PNG，供 Finder 貼上。可在此刪除不需要的檔案；刪除目前複製的圖片後，需重新複製才能再次貼上。";
++
++"Unable to open the Finder copy folder." = "無法打開 Finder 複製資料夾。";

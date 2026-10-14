@@ -1,0 +1,43 @@
+diff --git a/macshot/UI/Windows/SettingsWindowController.swift b/macshot/UI/Windows/SettingsWindowController.swift
+--- a/macshot/UI/Windows/SettingsWindowController.swift
++++ b/macshot/UI/Windows/SettingsWindowController.swift
+@@ -227,14 +227,14 @@
+         // Footer labels
+-        let madeBy = NSTextField(labelWithString: "\(L("Made by")) sw33tLie")
++        let madeBy = NSTextField(labelWithString: "修改版维护：TC023456-sys")
+         madeBy.font = NSFont.systemFont(ofSize: 11)
+         madeBy.textColor = .secondaryLabelColor
+         madeBy.translatesAutoresizingMaskIntoConstraints = false
+ 
+-        let linkBtn = NSButton(title: "github.com/sw33tLie/macshot", target: self, action: #selector(openGitHub))
++        let linkBtn = NSButton(title: "github.com/TC023456-sys/Snaplet", target: self, action: #selector(openGitHub))
+         linkBtn.bezelStyle = .inline
+         linkBtn.isBordered = false
+         linkBtn.font = NSFont.systemFont(ofSize: 11)
+-        linkBtn.attributedTitle = NSAttributedString(string: "github.com/sw33tLie/macshot", attributes: [
++        linkBtn.attributedTitle = NSAttributedString(string: "github.com/TC023456-sys/Snaplet", attributes: [
+             .font: NSFont.systemFont(ofSize: 11),
+             .foregroundColor: NSColor.linkColor,
+             .underlineStyle: NSUnderlineStyle.single.rawValue,
+@@ -2198,6 +2198,12 @@
+         #endif
+ 
+         // License
++        let attribution = NSTextField(wrappingLabelWithString: "修改版维护：TC023456-sys\n基于 sw33tLie/macshot 及其贡献者的作品\n原项目：https://github.com/sw33tLie/macshot\n署名与链接修改：2026-10-13；非上游官方版本")
++        attribution.font = NSFont.systemFont(ofSize: 11)
++        attribution.textColor = .secondaryLabelColor
++        attribution.alignment = .center
++        stack.addArrangedSubview(attribution)
++        stack.setCustomSpacing(12, after: attribution)
+         let license = NSTextField(labelWithString: L("Licensed under the GPLv3"))
+         license.font = NSFont.systemFont(ofSize: 11)
+         license.textColor = .tertiaryLabelColor
+@@ -2903,7 +2909,7 @@
+         LanguageManager.shared.currentLanguage = languages[idx].code
+     }
+     @objc private func openGitHub() {
+-        if let url = URL(string: "https://github.com/sw33tLie/macshot") { NSWorkspace.shared.open(url) }
++        if let url = URL(string: "https://github.com/TC023456-sys/Snaplet") { NSWorkspace.shared.open(url) }
+     }
+     @objc private func imageFormatChanged(_ sender: NSPopUpButton) {
+         guard let raw = sender.selectedItem?.representedObject as? String,
