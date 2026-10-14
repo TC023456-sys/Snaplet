@@ -145,7 +145,8 @@ text = text.replace('lbl.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
 text = text.replace('lbl.alignment = .right', 'lbl.alignment = .left')
 text = text.replace('constant: Self.labelColumnWidth + 8)', 'constant: 0)')
 text = text.replace('    private func indented(_ view: NSView) -> NSView {', '''    private func indented(_ view: NSView) -> NSView {
-        if let button = view as? NSButton, let cell = button.cell as? NSButtonCell, cell.buttonType == .switch {
+        let rightAlignedToggles: [NSButton?] = [launchAtLoginCheckbox, hideMenuBarIconCheckbox, autoUpdateCheckbox, betaUpdateCheckbox]
+        if let button = view as? NSButton, rightAlignedToggles.contains(where: { $0 === button }) {
             return SnapletSettingsChrome.toggleRow(button)
         }''')
 # Source/maintenance metadata belong in About, not on the General page.
