@@ -1,7 +1,7 @@
 import Cocoa
 
-/// Supplies a real PNG for Finder without putting file URLs on the image item.
-/// Chat applications can continue reading PNG/TIFF bytes from the first item.
+/// One logical screenshot with image and file representations on the same item.
+/// Multiple pasteboard items are separate attachments in applications like Messages.
 enum FinderClipboard {
     nonisolated static var directoryURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -23,9 +23,21 @@ enum FinderClipboard {
         let image = NSPasteboardItem()
         image.setData(pngData, forType: .png)
         if let tiffData { image.setData(tiffData, forType: .tiff) }
+        if let fileURL {
+            let url = fileURL as NSURL
+            for type in url.writableTypes(for: pasteboard) {
+                if let value = url.pasteboardPropertyList(forType: type) {
+                    if let string = value as? String {
+                        image.setString(string, forType: type)
+                    } else if let data = value as? Data {
+                        image.setData(data, forType: type)
+                    } else {
+                        image.setPropertyList(value, forType: type)
+                    }
+                }
+            }
+        }
         pasteboard.clearContents()
-        var objects: [NSPasteboardWriting] = [image]
-        if let fileURL { objects.append(fileURL as NSURL) }
-        pasteboard.writeObjects(objects)
+        pasteboard.writeObjects([image])
     }
 }

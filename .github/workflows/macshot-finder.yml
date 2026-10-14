@@ -84,7 +84,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.8 CURRENT_PROJECT_VERSION=43008 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
+          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.9 CURRENT_PROJECT_VERSION=43009 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
       - name: Sign and package app and corresponding source
         shell: bash
         run: |
@@ -121,13 +121,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG=macshot-v4.3.0-finder.8
+          TAG=macshot-v4.3.0-finder.9
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo 'Release already exists; refusing to replace published binaries.'
             exit 0
           fi
           test "$GH_REPO" = TC023456-sys/Snaplet
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.8 · 全新设置界面与独立项目' --latest --notes-file macshot-finder/README.md
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.9 · 修复粘贴重复图片' --draft --notes-file macshot-finder/README.md
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
