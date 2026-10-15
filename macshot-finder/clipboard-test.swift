@@ -20,3 +20,29 @@ FinderClipboard.write(pb, pngData: png, tiffData: nil, fileURL: nil)
 precondition(pb.pasteboardItems!.count == 1)
 precondition(NSImage(pasteboard: pb) != nil)
 print("PASS: one screenshot item, PNG/TIFF representations, Finder file URL, image decoding, file-write fallback")
+
+// Cache cleanup only touches owned regular PNGs; current image always survives.
+let unrelated = folder.appendingPathComponent("user-photo.png")
+try png.write(to: unrelated)
+let directoryNamedPNG = folder.appendingPathComponent("Screenshot-\(UUID().uuidString).png")
+try FileManager.default.createDirectory(at: directoryNamedPNG, withIntermediateDirectories: false)
+let link = folder.appendingPathComponent("Screenshot-\(UUID().uuidString).png")
+try FileManager.default.createSymbolicLink(at: link, withDestinationURL: unrelated)
+var generated = [url]
+for index in 0..<6 {
+    let file = try FinderClipboard.createFile(pngData: png, directory: folder)
+    try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: Double(index + 1))], ofItemAtPath: file.path)
+    generated.append(file)
+}
+// Keep an older current item even when newer files exist.
+FinderClipboard.prune(directory: folder, keeping: url, limit: 5)
+precondition(generated.filter { FileManager.default.fileExists(atPath: $0.path) }.count == 5)
+precondition(FileManager.default.fileExists(atPath: url.path))
+FinderClipboard.prune(directory: folder, keeping: url, limit: 1)
+precondition(generated.filter { FileManager.default.fileExists(atPath: $0.path) } == [url])
+let retainedData = try Data(contentsOf: url)
+precondition(retainedData == png)
+precondition(FileManager.default.fileExists(atPath: unrelated.path))
+precondition(FileManager.default.fileExists(atPath: directoryNamedPNG.path))
+precondition((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil)
+print("PASS: retention 5/1, current file protection, unrelated files, directories and symlinks untouched")

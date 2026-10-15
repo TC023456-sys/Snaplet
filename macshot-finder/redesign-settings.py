@@ -179,6 +179,9 @@ text = text[:start] + note + '''        stack.addArrangedSubview(SnapletSettings
 ''' + text[finish:]
 text = text.replace('stack.addArrangedSubview(indented(colorsRow))', 'stack.addArrangedSubview(SnapletSettingsDisclosure(title: L("Custom appearance"), content: [colorsRow]))')
 # Notes keep readable type without competing with the primary controls.
+cache_anchor = '        stack.addArrangedSubview(indented(clipboardNote))'
+assert text.count(cache_anchor) == 1
+text = text.replace(cache_anchor, cache_anchor + '\n        stack.addArrangedSubview(SnapletFinderCacheControls())')
 text = text.replace('NSFont.systemFont(ofSize: 10)', 'NSFont.systemFont(ofSize: 11)')
 path.write_text(text)
 shutil.copyfile(assets / 'SnapletSettingsChrome.swift', source / 'macshot/UI/Windows/SnapletSettingsChrome.swift')
