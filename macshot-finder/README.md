@@ -37,10 +37,10 @@
 
 1. 克隆并核对上游固定提交。
 2. 依次应用 `finder-paste.patch` 和 `maintainer-attribution.patch`。
-3. 运行 `python3 brand-snaplet.py <source>` 和 `python3 redesign-settings.py <source>`。
+3. 依次运行 `python3 brand-snaplet.py <source>`、`python3 redesign-settings.py <source>` 和 `python3 cleanup-source.py <source>`。最后一步移除旧更新框架、无效授权队列和导航残留，并分开授权引导按钮。
 4. 将 `FinderClipboard.swift` 和 `ForkUpdateService.swift` 复制到 `macshot/Services/`。设置辅助文件由改版脚本复制。
 5. 运行测试，编译并强制链接 `keyboard/EscapeFix.m` 的通用静态库，再构建 `macshot` scheme。
-6. 将外部包命名为 `Snaplet.app`，临时签名，打包安装包、完整修改后源码及校验值。流程先创建发布草稿，验证后再公开。
+6. 将外部包命名为 `Snaplet.app`，临时签名，打包安装包、完整修改后源码及校验值。普通提交只构建并上传 Actions 产物；验证且更新版本号与标签后，手动运行工作流并选择 `publish` 才公开发布，拒绝覆盖已发布的安装包。
 
 Release 源码包的 `SnapletFork` 目录保留品牌脚本、资源、键盘代码、测试与补丁，便于重现构建。
 
