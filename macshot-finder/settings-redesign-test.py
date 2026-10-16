@@ -23,6 +23,18 @@ assert 'SnapletFinderCacheControls()' in current
 chrome = (source / 'macshot/UI/Windows/SnapletSettingsChrome.swift').read_text()
 assert 'x: 42' in chrome and 'let counts = [1, 5, 10, 20]' in chrome
 assert 'SnapletFinderClipboardRetention' in chrome
+assert 'window.titleVisibility = .hidden' in current
+assert 'window.titlebarAppearsTransparent = true' in current
+assert 'snapletPageHeading?.stringValue' in current
+assert 'snapletArrangeGeneral(stack: stack, appearancePopup: appearancePopup)' in current
+assert 'let advanced = original.filter' in current
+assert 'SnapletSwitchCell' in chrome and 'button.target = oldTarget' in chrome
+assert 'let box = NSView()' in chrome
+assert 'path.stroke()' not in chrome
+assert 'stack.addArrangedSubview(indented(langNote))' not in current
+assert 'stack.addArrangedSubview(indented(backupNote))' not in current
+assert 'stack.addArrangedSubview(indented(browserElementSnapNote))' in current
+assert 'stack.addArrangedSubview(indented(hideHUDNote))' in current
 assert 'TC023456-sys / Snaplet' in current
 assert 'sw33tLie' in current and 'GPL' in current
-print('PASS: existing setting actions retained; sidebar, cards, disclosure, appearance and About metadata integrated.')
+print('PASS: existing actions retained; Studio sidebar, hidden titlebar, concise General groups, native toggle routing, safety notes and About attribution integrated.')

@@ -9,24 +9,41 @@ enum SnapletSettingsChrome {
         return dark ? NSColor(calibratedRed: 0.65, green: 0.83, blue: 0.71, alpha: 1)
                     : NSColor(calibratedRed: 0.16, green: 0.37, blue: 0.28, alpha: 1)
     }
+    static let background = NSColor(name: NSColor.Name("SnapletStudioBackground")) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(calibratedRed: 0.11, green: 0.12, blue: 0.12, alpha: 1)
+            : NSColor(calibratedRed: 0.985, green: 0.985, blue: 0.977, alpha: 1)
+    }
+    static let sidebar = NSColor(name: NSColor.Name("SnapletStudioSidebar")) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(calibratedRed: 0.135, green: 0.155, blue: 0.145, alpha: 1)
+            : NSColor(calibratedRed: 0.945, green: 0.953, blue: 0.937, alpha: 1)
+    }
 
     static func card(rows: [NSView]) -> NSView {
-        let box = SnapletSettingsCard()
+        let box = NSView()
         let content = NSStackView(views: rows)
         content.orientation = .vertical
         content.alignment = .leading
-        content.spacing = 9
+        content.spacing = 14
         content.translatesAutoresizingMaskIntoConstraints = false
         box.addSubview(content)
         NSLayoutConstraint.activate([
-            content.topAnchor.constraint(equalTo: box.topAnchor, constant: 16),
-            content.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -16),
-            content.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 16),
-            content.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -16),
+            content.topAnchor.constraint(equalTo: box.topAnchor, constant: 10),
+            content.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: -10),
+            content.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: box.trailingAnchor),
         ])
-        for row in rows {
+        for (index, row) in rows.enumerated() {
             row.translatesAutoresizingMaskIntoConstraints = false
             row.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+            if index < rows.count - 1 {
+                let line = NSBox()
+                line.boxType = .separator
+                content.insertArrangedSubview(line, at: content.arrangedSubviews.firstIndex(of: row)! + 1)
+                line.translatesAutoresizingMaskIntoConstraints = false
+                line.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+            }
         }
         return box
     }
@@ -36,7 +53,20 @@ enum SnapletSettingsChrome {
         label.font = .systemFont(ofSize: 13)
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         button.setAccessibilityLabel(button.title)
+        let oldState = button.state
+        let oldTarget = button.target
+        let oldAction = button.action
+        let oldEnabled = button.isEnabled
+        let switchCell = SnapletSwitchCell(textCell: "")
+        switchCell.setButtonType(.switch)
+        button.cell = switchCell
+        button.target = oldTarget
+        button.action = oldAction
+        button.state = oldState
+        button.isEnabled = oldEnabled
         button.title = ""
+        button.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 22).isActive = true
         button.setContentHuggingPriority(.required, for: .horizontal)
         let row = NSStackView(views: [label, NSView(), button])
         row.orientation = .horizontal
@@ -46,15 +76,25 @@ enum SnapletSettingsChrome {
     }
 }
 
+/// Retains NSButton's keyboard, accessibility and existing target/action API.
+@MainActor
+final class SnapletSwitchCell: NSButtonCell {
+    override var cellSize: NSSize { NSSize(width: 34, height: 22) }
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
+        let track = NSRect(x: cellFrame.midX - 16, y: cellFrame.midY - 9, width: 32, height: 18)
+        (state == .on ? SnapletSettingsChrome.accent : NSColor.separatorColor).setFill()
+        NSBezierPath(roundedRect: track, xRadius: 9, yRadius: 9).fill()
+        NSColor.controlBackgroundColor.setFill()
+        NSBezierPath(ovalIn: NSRect(x: track.minX + (state == .on ? 16 : 3), y: track.minY + 3, width: 12, height: 12)).fill()
+    }
+}
+
 @MainActor
 final class SnapletSettingsCard: NSView {
+    var isSidebar = false
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.controlBackgroundColor.setFill()
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 11, yRadius: 11)
-        path.fill()
-        NSColor.separatorColor.withAlphaComponent(0.45).setStroke()
-        path.lineWidth = 1
-        path.stroke()
+        (isSidebar ? SnapletSettingsChrome.sidebar : SnapletSettingsChrome.background).setFill()
+        dirtyRect.fill()
     }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -66,8 +106,9 @@ final class SnapletSettingsCard: NSView {
 final class SnapletNavigationButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         if state == .on {
-            SnapletSettingsChrome.accent.withAlphaComponent(0.13).setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
+            let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            (dark ? SnapletSettingsChrome.accent.withAlphaComponent(0.09) : NSColor.controlBackgroundColor).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8).fill()
         }
         contentTintColor = state == .on ? SnapletSettingsChrome.accent : .secondaryLabelColor
         // Fixed icon column and label origin, independent of SF Symbol width.
@@ -87,6 +128,10 @@ final class SnapletNavigationButton: NSButton {
             .font: font ?? NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: tint
         ])
         text.draw(at: NSPoint(x: 42, y: (bounds.height - text.size().height) / 2))
+        if state == .on {
+            tint.setFill()
+            NSBezierPath(ovalIn: NSRect(x: bounds.width - 14, y: bounds.midY - 2, width: 4, height: 4)).fill()
+        }
     }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -114,13 +159,15 @@ final class SnapletFinderCacheControls: NSStackView {
         popup.target = self
         popup.action = #selector(changed(_:))
         popup.setAccessibilityLabel(label.stringValue)
-        let row = NSStackView(views: [label, popup])
+        let row = NSStackView(views: [label, NSView(), popup])
         row.spacing = 12
         row.alignment = .centerY
         addArrangedSubview(row)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
         let note = NSTextField(wrappingLabelWithString: chinese
-            ? "默认仅保留最近 1 张；下次复制时自动清理旧缓存，保留当前图片供 Finder 粘贴。不会删除截图历史或已保存的图片。"
-            : "Keeps 1 image by default. Old cache files are removed on the next copy; the current Finder image is preserved. History and saved images are unaffected.")
+            ? "下次复制时清理旧缓存，不影响截图历史或已保存图片。"
+            : "Old cache files are cleared on the next copy. History and saved images are unaffected.")
         note.font = .systemFont(ofSize: 11)
         note.textColor = .secondaryLabelColor
         addArrangedSubview(note)

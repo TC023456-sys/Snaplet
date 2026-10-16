@@ -43,6 +43,8 @@ jobs:
           python3 macshot-finder/branding-test.py source "$RUNNER_TEMP/snaplet-brand-original"
           python3 macshot-finder/settings-redesign-test.py source "$RUNNER_TEMP/snaplet-brand-original"
           swiftc -typecheck -O -swift-version 5 macshot-finder/SnapletSettingsChrome.swift
+          swiftc -O -swift-version 5 -parse-as-library macshot-finder/SnapletSettingsChrome.swift macshot-finder/settings-studio-test.swift -o "$RUNNER_TEMP/settings-studio-test"
+          "$RUNNER_TEMP/settings-studio-test"
           cp macshot-finder/FinderClipboard.swift source/macshot/Services/
           cp macshot-finder/ForkUpdateService.swift source/macshot/Services/
           cp macshot-finder/README.md source/FINDER-FORK.md
@@ -84,7 +86,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.10 CURRENT_PROJECT_VERSION=43010 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
+          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.11 CURRENT_PROJECT_VERSION=43011 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
       - name: Sign and package app and corresponding source
         shell: bash
         run: |
@@ -121,13 +123,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG=macshot-v4.3.0-finder.10
+          TAG=macshot-v4.3.0-finder.11
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo 'Release already exists; refusing to replace published binaries.'
             exit 0
           fi
           test "$GH_REPO" = TC023456-sys/Snaplet
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.10 · 缓存自动清理与导航对齐' --latest --notes-file macshot-finder/RELEASE-NOTES.md
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.11 · 静谧工作室设置界面' --draft --notes-file macshot-finder/RELEASE-NOTES.md
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
