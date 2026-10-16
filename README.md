@@ -1,28 +1,15 @@
 # Snaplet
 
-独立的 macOS 截图与标注项目，基于 sw33tLie/macshot v4.3.0（GPL-3.0），由 TC023456-sys 维护修改版。不是上游官方发布。
+独立的 macOS 截图与标注项目，基于 [sw33tLie/macshot v4.3.0](https://github.com/sw33tLie/macshot/tree/v4.3.0)（GPL-3.0），由 TC023456-sys 维护修改版。非上游官方发布。
 
-此项目仅包含 Snaplet：源码修改、品牌资源、键盘修复、测试及 GitHub Actions 构建流程。不包含 Retina Dummy 源码、MIT 许可证或发布工作流。
+本仓库仅包含 Snaplet 源码修改、品牌资源、键盘修复、测试及构建流程，不包含 Retina Dummy 项目。
 
-## 状态
+## 下载与构建
 
-本项目现已独立为 `TC023456-sys/Snaplet`。RetinaDummy 中的截图源码、截图构建流程、旧截图 Releases 及可见分支和标签中的相关历史已清理；本项目独立维护源码与安装包。
+公开安装包见 [Releases](https://github.com/TC023456-sys/Snaplet/releases)，版本变更见 `macshot-finder/RELEASE-NOTES.md`。草稿和本地修改不等于公开更新。
 
-新版下载见 [Releases](https://github.com/TC023456-sys/Snaplet/releases)。只有构建和测试成功后才发布安装包；未发布时请等待工作流完成。
+构建说明见 `macshot-finder/README.md`，自动步骤见 `.github/workflows/macshot-finder.yml`。流程克隆固定上游、应用补丁、替换品牌资源、执行测试并构建安装包及完整对应源码。原作者署名与 GPL 声明保留。
 
-## 构建
+设置采用原生 AppKit 侧栏和简洁分组，支持浅深色及高级选项，不使用 WebView 包装预览。
 
-详见 `macshot-finder/README.md` 和 `.github/workflows/macshot-finder.yml`。工作流克隆固定上游版本、应用补丁、替换品牌图片、运行测试、构建并使用临时签名打包。上游来源、作者署名和 GPL 声明保留。
-
-本次发布目标为 `4.3.0-finder.10`，新增 Finder 缓存保留数量设置、导航对齐，并包含重复粘贴修复。是否已完成发布请以 Releases 页面为准。更新服务只读取 `TC023456-sys/Snaplet`。旧安装包文件名与标签前缀暂时保留，用于更新兼容。旧版本的更新地址不会因为远程迁移自动改变；需要安装独立项目的新版本。
-
-## 迁移顺序
-
-1. 创建同名公共仓库，上传此项目。
-2. 验证 CI、完整对应源码及安装包；迁移旧 Snaplet 发布资料并核对文件摘要。
-3. 从 RetinaDummy 当前分支移除 `macshot-finder` 和其构建工作流，保留显示器工具。
-4. 旧下载迁移确认后已按维护者要求清理旧发布资料与可见分支历史；GitHub 内部缓存不由本项目保证清除。
-
-设置页已加入原生 AppKit 改版实现：左侧导航、墨绿点缀、自适应分组卡片、右侧勾选控件、浅深色切换和可展开的自定义外观。构建时运行 `redesign-settings.py`，不使用 WebView 包装设计预览。
-
-当前通过辅助组件 Swift 优化模式类型检查、生成控制器语法检查、原设置操作保留检查及品牌资源检查；完整 Release 构建和安装后的实际布局仍待验证。截图权限、快捷键与更新均需新安装包实测，不能以源代码检查代替。
+更新服务只读取 `TC023456-sys/Snaplet`。旧包文件名、标签前缀及应用标识为兼容更新和现有设置而保留。临时签名版本更新后可能需要重新授予录屏权限；源码测试不代替安装后的权限验证。
