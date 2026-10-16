@@ -1,5 +1,6 @@
 """Reproducible native settings redesign applied after fork patches/branding."""
 from pathlib import Path
+import re
 import shutil
 import sys
 
@@ -204,11 +205,31 @@ text = text.replace('stack.addArrangedSubview(indented(colorsRow))', 'stack.addA
 cache_anchor = '        stack.addArrangedSubview(indented(clipboardNote))'
 assert text.count(cache_anchor) == 1
 text = text.replace(cache_anchor, cache_anchor + '\n        stack.addArrangedSubview(SnapletFinderCacheControls())')
-# Keep safety / data-loss / credentials explanations; remove redundant General copy.
-for redundant in ['langNote', 'hideNote', 'backupNote', 'downscaleNote', 'orderNote', 'providerNote', 'menuOrderNote']:
-    text = text.replace(f'        stack.addArrangedSubview(indented({redundant}))', f'        // {redundant}: redundant explanation omitted from the compact layout.')
-text = text.replace('        stack.addArrangedSubview(indented(clipboardPath))', '        // Cache path stays available via Open in Finder.')
-text = text.replace(cache_anchor, '        // Cache cleanup is explained by SnapletFinderCacheControls.')
+# Remove unused controls, not just their insertion into the visible stack.
+# Keep safety / data-loss / credentials explanations that are still displayed.
+for unused in ['langNote', 'hideNote', 'backupNote', 'downscaleNote', 'orderNote', 'providerNote', 'menuOrderNote', 'clipboardPath', 'clipboardNote']:
+    pattern = (rf'(?m)^([ \t]+)let {unused} = [^\n]+\n'
+               rf'(?:\1{unused}\.[^\n]+\n)*'
+               rf'\1stack\.addArrangedSubview\(indented\({unused}\)\)\n')
+    text, count = re.subn(pattern, '', text)
+    assert count == 1, f'Unused control block changed: {unused}'
+    assert not re.search(rf'\b{unused}\b', text), f'Unexpected remaining reference: {unused}'
+
+# Sidebar navigation supersedes the original toolbar and its fallback assets.
+start = text.index('    @objc private func toolbarTabSelected(')
+end = text.index('    // MARK: - General Tab', start)
+text = text[:start] + text[end:]
+text = text.replace('NSWindowController, NSToolbarDelegate, NSWindowDelegate', 'NSWindowController, NSWindowDelegate')
+text = text.replace('// MARK: - Toolbar tab definitions', '// MARK: - Sidebar tab definitions')
+text, count = re.subn(r'(?m)^        let legacyImageName: String[^\n]*\n', '', text)
+assert count == 1
+text, count = re.subn(r',\s+legacyImageName: NSImage\.preferencesGeneralName', '', text)
+assert count == 7
+start = text.index('    /// Width of the right-aligned label column')
+end = text.index('    private func labeledRow(', start)
+text = text[:start] + '    /// Expanding label on the left, native controls on the trailing edge.\n' + text[end:]
+for obsolete in ['NSToolbarDelegate', 'toolbarTabSelected', 'legacyImageName', 'labelColumnWidth']:
+    assert obsolete not in text, f'Unexpected legacy reference: {obsolete}'
 
 # Reorder General without rebuilding any control or changing its saved value.
 general_start = text.index('    private func makeGeneralTabView()')
@@ -256,4 +277,4 @@ for strings in (source / 'macshot').glob('*.lproj/Localizable.strings'):
             value = chinese if strings.parent.name == 'zh-Hans.lproj' else key
             existing += '\n"' + key + '" = "' + value + '";\n'
     strings.write_text(existing)
-print('Native Snaplet settings: sidebar, adaptive section cards, aligned controls and About metadata prepared.')
+print('Native Snaplet settings: Studio sidebar, concise groups, aligned controls and About metadata prepared.')
