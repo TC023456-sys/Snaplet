@@ -7,6 +7,11 @@ on:
       - 'macshot-finder/**'
       - '.github/workflows/macshot-finder.yml'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a new version after updating the version/tag and validating the build'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -39,12 +44,18 @@ jobs:
           git -C source apply ../macshot-finder/maintainer-attribution.patch
           python3 macshot-finder/brand-snaplet.py source
           python3 macshot-finder/redesign-settings.py source
+          python3 macshot-finder/cleanup-source.py source
           git clone --depth 1 --branch v4.3.0 https://github.com/sw33tLie/macshot.git "$RUNNER_TEMP/snaplet-brand-original"
           python3 macshot-finder/branding-test.py source "$RUNNER_TEMP/snaplet-brand-original"
           python3 macshot-finder/settings-redesign-test.py source "$RUNNER_TEMP/snaplet-brand-original"
+          python3 macshot-finder/cleanup-test.py source "$RUNNER_TEMP/snaplet-brand-original"
           swiftc -typecheck -O -swift-version 5 macshot-finder/SnapletSettingsChrome.swift
           swiftc -O -swift-version 5 -parse-as-library macshot-finder/SnapletSettingsChrome.swift macshot-finder/settings-studio-test.swift -o "$RUNNER_TEMP/settings-studio-test"
           "$RUNNER_TEMP/settings-studio-test"
+          swiftc -O -swift-version 5 -parse-as-library source/macshot/UI/Windows/PermissionOnboardingController.swift macshot-finder/permission-layout-test.swift -o "$RUNNER_TEMP/permission-layout-test"
+          "$RUNNER_TEMP/permission-layout-test"
+          swiftc -O -swift-version 5 -parse-as-library source/macshot/Services/SettingsPortability.swift macshot-finder/settings-portability-test.swift -o "$RUNNER_TEMP/settings-portability-test"
+          "$RUNNER_TEMP/settings-portability-test"
           cp macshot-finder/FinderClipboard.swift source/macshot/Services/
           cp macshot-finder/ForkUpdateService.swift source/macshot/Services/
           cp macshot-finder/README.md source/FINDER-FORK.md
@@ -100,6 +111,11 @@ jobs:
           cp macshot-finder/README.md package/Snaplet.app/Contents/Resources/SNAPLET-NOTICES.md
           codesign --force --deep --sign - --timestamp=none --entitlements source/macshot/macshot.entitlements package/Snaplet.app
           codesign --verify --deep --strict package/Snaplet.app
+          test ! -d package/Snaplet.app/Contents/Frameworks/Sparkle.framework
+          if otool -L package/Snaplet.app/Contents/MacOS/macshot | grep -q 'Sparkle.framework'; then
+            echo 'Unused Sparkle dependency is still linked.'
+            exit 1
+          fi
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Snaplet.app/Contents/Info.plist)" = com.sw33tlie.macshot.macshot
           nm package/Snaplet.app/Contents/MacOS/macshot | grep InstallEscapeFix
           ditto -c -k --sequesterRsrc --keepParent package/Snaplet.app dist/MacShot-Finder.zip
@@ -107,7 +123,6 @@ jobs:
           cp .github/workflows/macshot-finder.yml source/SnapletFork/build-workflow.yml
           test -d source/.git
           rm -rf source/.git
-          cp macshot-finder/clipboard-test.swift source/FinderClipboardTest.swift
           ditto -c -k --keepParent source dist/MacShot-Finder-Source.zip
           cp macshot-finder/LICENSE dist/macshot-GPL-3.0-LICENSE.txt
           shasum -a 256 dist/*.zip > dist/SHA256SUMS.txt
@@ -117,6 +132,7 @@ jobs:
           name: macshot-finder
           path: dist/*
       - name: Publish separate macshot release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
