@@ -31,6 +31,8 @@ assert 'let advanced = original.filter' in current
 assert 'SnapletSwitchCell' in chrome and 'button.target = oldTarget' in chrome
 assert 'let box = NSView()' in chrome
 assert 'path.stroke()' not in chrome
+assert 'override var wantsDefaultClipping: Bool { true }' in chrome
+assert 'bounds.fill()' in chrome and 'dirtyRect.fill()' not in chrome
 assert 'stack.addArrangedSubview(indented(langNote))' not in current
 assert 'stack.addArrangedSubview(indented(backupNote))' not in current
 assert 'stack.addArrangedSubview(indented(browserElementSnapNote))' in current

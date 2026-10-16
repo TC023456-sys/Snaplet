@@ -92,9 +92,10 @@ final class SnapletSwitchCell: NSButtonCell {
 @MainActor
 final class SnapletSettingsCard: NSView {
     var isSidebar = false
+    override var wantsDefaultClipping: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
         (isSidebar ? SnapletSettingsChrome.sidebar : SnapletSettingsChrome.background).setFill()
-        dirtyRect.fill()
+        bounds.fill()
     }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
