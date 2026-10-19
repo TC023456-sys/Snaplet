@@ -45,10 +45,12 @@ jobs:
           python3 macshot-finder/brand-snaplet.py source
           python3 macshot-finder/redesign-settings.py source
           python3 macshot-finder/cleanup-source.py source
+          python3 macshot-finder/preserve-popups.py source
           git clone --depth 1 --branch v4.3.0 https://github.com/sw33tLie/macshot.git "$RUNNER_TEMP/snaplet-brand-original"
           python3 macshot-finder/branding-test.py source "$RUNNER_TEMP/snaplet-brand-original"
           python3 macshot-finder/settings-redesign-test.py source "$RUNNER_TEMP/snaplet-brand-original"
           python3 macshot-finder/cleanup-test.py source "$RUNNER_TEMP/snaplet-brand-original"
+          python3 macshot-finder/popup-order-test.py source
           swiftc -typecheck -O -swift-version 5 macshot-finder/SnapletSettingsChrome.swift
           swiftc -O -swift-version 5 -parse-as-library macshot-finder/SnapletSettingsChrome.swift macshot-finder/settings-studio-test.swift -o "$RUNNER_TEMP/settings-studio-test"
           "$RUNNER_TEMP/settings-studio-test"
@@ -97,7 +99,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.12 CURRENT_PROJECT_VERSION=43012 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
+          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.13 CURRENT_PROJECT_VERSION=43013 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
       - name: Sign and package app and corresponding source
         shell: bash
         run: |
@@ -140,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GH_REPO" = TC023456-sys/Snaplet
-          TAG=macshot-v4.3.0-finder.12
+          TAG=macshot-v4.3.0-finder.13
           if gh release view "$TAG" >/dev/null 2>&1; then
             test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true || { echo 'Refusing to replace published binaries.'; exit 1; }
             gh release edit "$TAG" --target "$GITHUB_SHA" --notes-file macshot-finder/RELEASE-NOTES.md
@@ -148,7 +150,7 @@ jobs:
             gh release edit "$TAG" --draft=false --latest
             exit 0
           fi
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.12 · Studio 设置与代码清理' --latest --notes-file macshot-finder/RELEASE-NOTES.md
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.13 · 截图弹窗保留与清理修复' --latest --notes-file macshot-finder/RELEASE-NOTES.md
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
