@@ -216,3 +216,299 @@
  "Advanced options" = "Advanced options";
 +
 +"Screen capture timed out. Please try again." = "截圖逾時，已恢復，請重試。";
+--- a/macshot/ar.lproj/Localizable.strings
++++ b/macshot/ar.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "انتهت مهلة التقاط الشاشة. يرجى المحاولة مرة أخرى.";
+--- a/macshot/bg.lproj/Localizable.strings
++++ b/macshot/bg.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Времето за заснемане на екрана изтече. Опитайте отново.";
+--- a/macshot/bn.lproj/Localizable.strings
++++ b/macshot/bn.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "স্ক্রিন ক্যাপচারের সময়সীমা শেষ হয়েছে। আবার চেষ্টা করুন।";
+--- a/macshot/ca.lproj/Localizable.strings
++++ b/macshot/ca.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "S’ha esgotat el temps de captura de pantalla. Torna-ho a provar.";
+--- a/macshot/cs.lproj/Localizable.strings
++++ b/macshot/cs.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Vypršel časový limit snímání obrazovky. Zkuste to znovu.";
+--- a/macshot/da.lproj/Localizable.strings
++++ b/macshot/da.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Skærmoptagelsen fik timeout. Prøv igen.";
+--- a/macshot/de.lproj/Localizable.strings
++++ b/macshot/de.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Zeitüberschreitung bei der Bildschirmaufnahme. Bitte erneut versuchen.";
+--- a/macshot/el.lproj/Localizable.strings
++++ b/macshot/el.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Έληξε το χρονικό όριο λήψης οθόνης. Δοκιμάστε ξανά.";
+--- a/macshot/es.lproj/Localizable.strings
++++ b/macshot/es.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Se agotó el tiempo de captura de pantalla. Inténtalo de nuevo.";
+--- a/macshot/fa.lproj/Localizable.strings
++++ b/macshot/fa.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "مهلت ثبت تصویر صفحه تمام شد. دوباره تلاش کنید.";
+--- a/macshot/fi.lproj/Localizable.strings
++++ b/macshot/fi.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Näytön kaappauksen aikakatkaisu. Yritä uudelleen.";
+--- a/macshot/fil.lproj/Localizable.strings
++++ b/macshot/fil.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Nag-time out ang pagkuha ng screen. Pakisubukang muli.";
+--- a/macshot/fr.lproj/Localizable.strings
++++ b/macshot/fr.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "La capture d’écran a expiré. Veuillez réessayer.";
+--- a/macshot/he.lproj/Localizable.strings
++++ b/macshot/he.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "תם הזמן הקצוב לצילום המסך. יש לנסות שוב.";
+--- a/macshot/hi.lproj/Localizable.strings
++++ b/macshot/hi.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "स्क्रीन कैप्चर का समय समाप्त हो गया। कृपया फिर से प्रयास करें।";
+--- a/macshot/hr.lproj/Localizable.strings
++++ b/macshot/hr.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Isteklo je vrijeme za snimanje zaslona. Pokušajte ponovno.";
+--- a/macshot/hu.lproj/Localizable.strings
++++ b/macshot/hu.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "A képernyőfelvétel időtúllépés miatt leállt. Próbálja újra.";
+--- a/macshot/id.lproj/Localizable.strings
++++ b/macshot/id.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Pengambilan layar kehabisan waktu. Silakan coba lagi.";
+--- a/macshot/it.lproj/Localizable.strings
++++ b/macshot/it.lproj/Localizable.strings
+@@ -713,3 +713,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Tempo scaduto per la cattura dello schermo. Riprova.";
+--- a/macshot/ja.lproj/Localizable.strings
++++ b/macshot/ja.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "画面キャプチャがタイムアウトしました。もう一度お試しください。";
+--- a/macshot/ko.lproj/Localizable.strings
++++ b/macshot/ko.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "화면 캡처 시간이 초과되었습니다. 다시 시도해 주세요.";
+--- a/macshot/ms.lproj/Localizable.strings
++++ b/macshot/ms.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Tangkapan skrin tamat masa. Sila cuba lagi.";
+--- a/macshot/nb.lproj/Localizable.strings
++++ b/macshot/nb.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Tidsavbrudd ved skjermopptak. Prøv igjen.";
+--- a/macshot/nl.lproj/Localizable.strings
++++ b/macshot/nl.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Time-out bij het vastleggen van het scherm. Probeer het opnieuw.";
+--- a/macshot/pl.lproj/Localizable.strings
++++ b/macshot/pl.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Przekroczono limit czasu przechwytywania ekranu. Spróbuj ponownie.";
+--- a/macshot/pt-BR.lproj/Localizable.strings
++++ b/macshot/pt-BR.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "O tempo para capturar a tela esgotou. Tente novamente.";
+--- a/macshot/pt.lproj/Localizable.strings
++++ b/macshot/pt.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "O tempo de captura do ecrã foi excedido. Tente novamente.";
+--- a/macshot/ro.lproj/Localizable.strings
++++ b/macshot/ro.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Captura ecranului a expirat. Încercați din nou.";
+--- a/macshot/ru.lproj/Localizable.strings
++++ b/macshot/ru.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Время ожидания снимка экрана истекло. Повторите попытку.";
+--- a/macshot/sk.lproj/Localizable.strings
++++ b/macshot/sk.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Časový limit snímania obrazovky vypršal. Skúste to znova.";
+--- a/macshot/sr.lproj/Localizable.strings
++++ b/macshot/sr.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Истекло је време за снимање екрана. Покушајте поново.";
+--- a/macshot/sv.lproj/Localizable.strings
++++ b/macshot/sv.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Tidsgränsen för skärmbilden överskreds. Försök igen.";
+--- a/macshot/ta.lproj/Localizable.strings
++++ b/macshot/ta.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "திரைப் பிடிப்பிற்கான நேரம் முடிந்தது. மீண்டும் முயற்சிக்கவும்.";
+--- a/macshot/th.lproj/Localizable.strings
++++ b/macshot/th.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "หมดเวลาจับภาพหน้าจอ โปรดลองอีกครั้ง";
+--- a/macshot/tr.lproj/Localizable.strings
++++ b/macshot/tr.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Ekran yakalama zaman aşımına uğradı. Lütfen tekrar deneyin.";
+--- a/macshot/uk.lproj/Localizable.strings
++++ b/macshot/uk.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Час очікування знімка екрана минув. Спробуйте ще раз.";
+--- a/macshot/vi.lproj/Localizable.strings
++++ b/macshot/vi.lproj/Localizable.strings
+@@ -730,3 +730,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Đã hết thời gian chụp màn hình. Vui lòng thử lại.";
