@@ -46,6 +46,10 @@ jobs:
           python3 macshot-finder/redesign-settings.py source
           python3 macshot-finder/cleanup-source.py source
           python3 macshot-finder/preserve-popups.py source
+          git -C source apply ../macshot-finder/capture-recovery.patch
+          cp macshot-finder/CaptureDeadline.swift source/macshot/Services/
+          swiftc -swift-version 5 -parse-as-library -default-isolation MainActor macshot-finder/CaptureDeadline.swift macshot-finder/capture-deadline-tests.swift -o "$RUNNER_TEMP/capture-deadline-tests"
+          "$RUNNER_TEMP/capture-deadline-tests"
           python3 macshot-finder/optimize-capture.py source
           git clone --depth 1 --branch v4.3.0 https://github.com/sw33tLie/macshot.git "$RUNNER_TEMP/snaplet-brand-original"
           python3 macshot-finder/branding-test.py source "$RUNNER_TEMP/snaplet-brand-original"
@@ -136,7 +140,7 @@ jobs:
           name: macshot-finder
           path: dist/*
       - name: Publish separate macshot release
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        if: (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.event.head_commit.message == 'Release finder.14: recover stalled screenshot requests')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -152,7 +156,7 @@ jobs:
             gh release edit "$TAG" --draft=false --latest
             exit 0
           fi
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.14 · 截图资源优化' --latest --notes-file macshot-finder/RELEASE-NOTES.md
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.14 · 截图恢复与资源优化' --latest --notes-file macshot-finder/RELEASE-NOTES.md
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4

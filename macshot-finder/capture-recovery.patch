@@ -1,0 +1,218 @@
+--- a/macshot/AppDelegate.swift
++++ b/macshot/AppDelegate.swift
+@@ -196,6 +196,7 @@
+     private var ocrController: OCRResultController?
+     private var historyMenu: NSMenu?
+     private var historyOverlayController: HistoryOverlayController?
++    private var captureStartupTimeout: DispatchWorkItem?
+     private var isCapturing = false
+     private var delayCountdownWindow: NSWindow?
+     private var delayTimer: Timer?
+@@ -323,6 +324,7 @@
+         if UserDefaults.standard.bool(forKey: "hideMenuBarIcon") {
+             setMenuBarIconVisible(false)
+         }
++        CaptureDiagnostics.record("launch version=\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "unknown")")
+         registerHotkey()
+         // Pre-warm CoreAudio so the first capture sound doesn't stall ~1s.
+         if let sound = Self.captureSound {
+@@ -1247,6 +1249,7 @@
+     }
+ 
+     private func startCapture(fromMenu: Bool = false) {
++        CaptureDiagnostics.record("capture request menu=\(fromMenu) busy=\(isCapturing) recording=\(recordingEngine != nil)")
+         guard !isCapturing else { return }
+         // Don't allow captures while recording
+         guard recordingEngine == nil else { return }
+@@ -1386,7 +1389,23 @@
+         pendingRestoreLastArea = false
+     }
+ 
++    private func armCaptureStartupTimeout() {
++        captureStartupTimeout?.cancel()
++        let sessionID = captureSessionID
++        let timeout = DispatchWorkItem { [weak self] in
++            guard let self, self.isCapturing, self.captureSessionID == sessionID else { return }
++            CaptureDiagnostics.record("capture timeout session=\(sessionID); resetting capture state")
++            self.captureSessionID &+= 1  // Reject any late result from this attempt.
++            self.cancelPreCaptureCountdown()
++            self.dismissOverlays(refocusPreviousApp: true)
++            self.showFailureToast(L("Screen capture timed out. Please try again."))
++        }
++        captureStartupTimeout = timeout
++        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: timeout)
++    }
++
+     private func performCapture(fromMenu: Bool) {
++        armCaptureStartupTimeout()
+         captureTimingTrace?.mark("performCapture entered fromMenu=\(fromMenu)")
+         let screens = measureCaptureTiming("NSScreen.screens") {
+             NSScreen.screens
+@@ -1440,7 +1459,10 @@
+             var captures: [ScreenCapture]? = nil
+             if #available(macOS 14.0, *) {
+                 captures = await ScreenCaptureManager.captureAllScreensImmediatelySCK(
+-                    timing: { label in trace?.mark(label) })
++                    timing: { label in
++                        trace?.mark(label)
++                        CaptureDiagnostics.record(label)
++                    })
+             }
+             // Legacy capture without access can return only wallpaper/our own
+             // windows. Do not present that as a successful screenshot.
+@@ -1450,11 +1472,15 @@
+             } else if CGPreflightScreenCaptureAccess() {
+                 finalCaptures = ScreenCaptureManager.captureAllScreensImmediately(
+                     context: captureContext,
+-                    timing: { label in trace?.mark(label) })
++                    timing: { label in
++                        trace?.mark(label)
++                        CaptureDiagnostics.record(label)
++                    })
+             } else {
+                 finalCaptures = []
+             }
+             trace?.mark("background screenshot end count=\(finalCaptures.count)")
++            CaptureDiagnostics.record("capture result session=\(sessionID) screens=\(finalCaptures.count)")
+             await MainActor.run {
+                 guard let self = self, self.isCapturing,
+                       self.captureSessionID == sessionID else { return }
+@@ -1500,6 +1526,8 @@
+         applyFullScreenRecord: Bool,
+         autoStartRecord: Bool
+     ) {
++        captureStartupTimeout?.cancel()
++        captureStartupTimeout = nil
+         if captures.isEmpty {
+             captureTimingTrace?.mark("no captures returned — bailing out")
+             // This accepted capture is ending without a selection, so nothing
+@@ -1538,6 +1566,7 @@
+             }
+         }
+ 
++        CaptureDiagnostics.record("capture interactive overlays=\(controllers.count)")
+         captureTimingTrace?.mark("overlays installed and shown — INTERACTIVE")
+         // Beacon: schedule periodic main-runloop marks so we can see if the
+         // runloop is alive between INTERACTIVE and the first user event.
+@@ -1644,6 +1673,8 @@
+     }
+ 
+     private func dismissOverlays(refocusPreviousApp: Bool = true) {
++        captureStartupTimeout?.cancel()
++        captureStartupTimeout = nil
+         captureTimingTrace?.mark("dismissOverlays entered refocus=\(refocusPreviousApp)")
+         autoreleasepool {
+             for controller in overlayControllers {
+--- a/macshot/Capture/ScreenCaptureManager.swift
++++ b/macshot/Capture/ScreenCaptureManager.swift
+@@ -150,8 +150,12 @@
+ 
+         timing?("SCK immediate: shareable content begin")
+         guard
+-            let content = try? await SCShareableContent.excludingDesktopWindows(
+-                false, onScreenWindowsOnly: true)
++            let content = await CaptureDeadline<SCShareableContent>.run(start: { finish in
++                SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
++                    if let error { timing?("SCK content error: \(error.localizedDescription)") }
++                    finish(content)
++                }
++            })
+         else {
+             timing?("SCK immediate: shareable content failed — fallback")
+             return nil
+@@ -193,8 +197,12 @@
+                     config.captureResolution = .best
+                     timing?("SCK immediate capture begin display=\(index)")
+                     guard
+-                        let image = try? await SCScreenshotManager.captureImage(
+-                            contentFilter: filter, configuration: config)
++                        let image = await CaptureDeadline<CGImage>.run(start: { finish in
++                            SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) { image, error in
++                                if let error { timing?("SCK image error: \(error.localizedDescription)") }
++                                finish(image)
++                            }
++                        })
+                     else {
+                         timing?("SCK immediate capture failed display=\(index)")
+                         return nil
+@@ -295,13 +303,16 @@
+         rect: CGRect,
+         configuration: SCScreenshotConfiguration
+     ) async -> (output: SCScreenshotOutput?, error: Error?) {
+-        await withCheckedContinuation { continuation in
+-            SCScreenshotManager.captureScreenshot(rect: rect, configuration: configuration) {
+-                output,
+-                error in
+-                continuation.resume(returning: (output, error))
+-            }
+-        }
++        let result = await CaptureDeadline<(SCScreenshotOutput?, Error?)>.run { finish in
++            SCScreenshotManager.captureScreenshot(rect: rect, configuration: configuration) { output, error in
++                finish((output, error))
++            }
++        }
++        guard let result else {
++            return (nil, NSError(domain: "SnapletCapture", code: 1,
++                                 userInfo: [NSLocalizedDescriptionKey: "Screen capture callback timed out"]))
++        }
++        return result
+     }
+ 
+     static func makeDisplayPreviewImage(from image: CGImage, maxPixelDimension: Int = 1400) -> CGImage {
+--- a/macshot/Services/HotkeyManager.swift
++++ b/macshot/Services/HotkeyManager.swift
+@@ -130,6 +130,7 @@
+             keyCode, modifiers, hotkeyID,
+             GetApplicationEventTarget(), 0, &ref
+         )
++        CaptureDiagnostics.record("hotkey register slot=\(slot.rawValue) status=\(status)")
+         if status == noErr, let ref = ref {
+             hotKeyRefs[slot] = ref
+         }
+@@ -176,6 +177,7 @@
+                         NSApp.stopModal()
+                         NSApp.modalWindow?.close()
+                     }
++                    CaptureDiagnostics.record("hotkey delivered slot=\(slot.rawValue)")
+                     callback()
+                     os_log("CARBON HANDLER RETURNED slot=%{public}d abs=%{public}.6f",
+                            log: hotkeyLog, type: .info,
+--- a/macshot/Model/Annotation.swift
++++ b/macshot/Model/Annotation.swift
+@@ -1776,9 +1776,9 @@
+                 let disc = b * b - 4 * a * c
+                 guard a > 0, disc >= 0 else { return innerBase }
+                 let root = sqrt(disc)
+-                let candidates = [(-b - root) / (2 * a), (-b + root) / (2 * a)]
+-                    .filter { $0 >= 0 && $0 <= 1 }
+-                    .sorted()
++                let firstRoot: CGFloat = (-b - root) / (2 * a)
++                let secondRoot: CGFloat = (-b + root) / (2 * a)
++                let candidates = [firstRoot, secondRoot].filter { $0 >= 0 && $0 <= 1 }.sorted()
+                 guard let t = candidates.first else { return innerBase }
+                 return NSPoint(x: tip.x + vx * t, y: tip.y + vy * t)
+             }
+--- a/macshot/en.lproj/Localizable.strings
++++ b/macshot/en.lproj/Localizable.strings
+@@ -731,3 +731,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "Screen capture timed out. Please try again.";
+--- a/macshot/zh-Hans.lproj/Localizable.strings
++++ b/macshot/zh-Hans.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "语言与更新";
+ 
+ "Advanced options" = "高级选项";
++
++"Screen capture timed out. Please try again." = "截图超时，已恢复，请重试。";
+--- a/macshot/zh-Hant.lproj/Localizable.strings
++++ b/macshot/zh-Hant.lproj/Localizable.strings
+@@ -732,3 +732,5 @@
+ "Language & Updates" = "Language & Updates";
+ 
+ "Advanced options" = "Advanced options";
++
++"Screen capture timed out. Please try again." = "截圖逾時，已恢復，請重試。";
