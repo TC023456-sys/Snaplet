@@ -47,6 +47,7 @@ jobs:
           python3 macshot-finder/cleanup-source.py source
           python3 macshot-finder/preserve-popups.py source
           git -C source apply ../macshot-finder/capture-recovery.patch
+          git -C source apply ../macshot-finder/overlay-warmup.patch
           cp macshot-finder/CaptureDeadline.swift source/macshot/Services/
           swiftc -swift-version 5 -parse-as-library -default-isolation MainActor macshot-finder/CaptureDeadline.swift macshot-finder/capture-deadline-tests.swift -o "$RUNNER_TEMP/capture-deadline-tests"
           "$RUNNER_TEMP/capture-deadline-tests"
@@ -57,6 +58,8 @@ jobs:
           python3 macshot-finder/cleanup-test.py source "$RUNNER_TEMP/snaplet-brand-original"
           python3 macshot-finder/popup-order-test.py source
           python3 macshot-finder/capture-efficiency-test.py source
+          python3 macshot-finder/warmup-race-test.py source
+          python3 macshot-finder/capture-orphan-test.py source
           swiftc -typecheck -O -swift-version 5 macshot-finder/SnapletSettingsChrome.swift
           swiftc -O -swift-version 5 -parse-as-library macshot-finder/SnapletSettingsChrome.swift macshot-finder/settings-studio-test.swift -o "$RUNNER_TEMP/settings-studio-test"
           "$RUNNER_TEMP/settings-studio-test"
@@ -105,7 +108,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.14 CURRENT_PROJECT_VERSION=43014 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
+          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.15 CURRENT_PROJECT_VERSION=43015 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
       - name: Sign and package app and corresponding source
         shell: bash
         run: |
@@ -141,7 +144,7 @@ jobs:
           path: dist/*
       - name: Publish separate macshot release
         if: >-
-          (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.event.head_commit.message == 'Release finder.14: recover stalled screenshot requests')
+          (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.event.head_commit.message == 'Release finder.15: prevent delayed warmup from hiding active captures')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -149,7 +152,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GH_REPO" = TC023456-sys/Snaplet
-          TAG=macshot-v4.3.0-finder.14
+          TAG=macshot-v4.3.0-finder.15
           if gh release view "$TAG" >/dev/null 2>&1; then
             test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true || { echo 'Refusing to replace published binaries.'; exit 1; }
             gh release edit "$TAG" --target "$GITHUB_SHA" --notes-file macshot-finder/RELEASE-NOTES.md
@@ -157,7 +160,7 @@ jobs:
             gh release edit "$TAG" --draft=false --latest
             exit 0
           fi
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.14 · 截图恢复与资源优化' --latest --notes-file macshot-finder/RELEASE-NOTES.md
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.15 · 修复闲置后截图失效' --latest --notes-file macshot-finder/RELEASE-NOTES.md
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
