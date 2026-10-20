@@ -140,7 +140,8 @@ jobs:
           name: macshot-finder
           path: dist/*
       - name: Publish separate macshot release
-        if: (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.event.head_commit.message == 'Release finder.14: recover stalled screenshot requests')
+        if: >-
+          (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.event.head_commit.message == 'Release finder.14: recover stalled screenshot requests')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
