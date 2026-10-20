@@ -37,12 +37,19 @@
 
 1. 克隆并核对上游固定提交。
 2. 依次应用 `finder-paste.patch` 和 `maintainer-attribution.patch`。
-3. 依次运行 `python3 brand-snaplet.py <source>`、`python3 redesign-settings.py <source>`、`python3 cleanup-source.py <source>` 和 `python3 preserve-popups.py <source>`。清理旧更新与授权残留，修复授权按钮布局，并将截图窗口创建、预热延后到实际取图之后。
+3. 依次运行 `python3 brand-snaplet.py <source>`、`python3 redesign-settings.py <source>`、`python3 cleanup-source.py <source>`、`python3 preserve-popups.py <source>` 和 `python3 optimize-capture.py <source>`。清理旧更新与授权残留，修复授权按钮布局，并将截图窗口创建、预热延后到实际取图之后。
 4. 将 `FinderClipboard.swift` 和 `ForkUpdateService.swift` 复制到 `macshot/Services/`。设置辅助文件由改版脚本复制。
 5. 运行测试，编译并强制链接 `keyboard/EscapeFix.m` 的通用静态库，再构建 `macshot` scheme。
 6. 将外部包命名为 `Snaplet.app`，临时签名，打包安装包、完整修改后源码及校验值。普通提交只构建并上传 Actions 产物；验证且更新版本号与标签后，手动运行工作流并选择 `publish` 才公开发布，拒绝覆盖已发布的安装包。
 
 Release 源码包的 `SnapletFork` 目录保留品牌脚本、资源、键盘代码、测试与补丁，便于重现构建。
+
+### 截图资源优化（待打包验证）
+
+- macOS 26 的矩形单帧截图不提前枚举共享窗口；窗口截图仍可按需查询。
+- 整屏静态截图仅抓取鼠标所在显示器，SCK 和旧接口回退使用同一范围。普通框选及录制保持全屏幕支持，不降低原图分辨率。
+- 控制器仅为成功返回的屏幕截图创建；结束截图后不重新加载自定义背景，下次安装截图时再恢复。
+- `capture-efficiency-test.py` 检查实际生成源码的取图范围、主屏原点、Retina 尺寸、回退和背景加载时机。未完成新版整包及多显示器运行对比前，不宣称具体 CPU、内存或延迟收益。
 
 ## 许可
 
