@@ -38,7 +38,7 @@
 1. 克隆并核对上游固定提交。
 2. 依次应用 `finder-paste.patch` 和 `maintainer-attribution.patch`。
 3. 依次运行 `python3 brand-snaplet.py <source>`、`python3 redesign-settings.py <source>`、`python3 cleanup-source.py <source>`、`python3 preserve-popups.py <source>` 和 `python3 optimize-capture.py <source>`。清理旧更新与授权残留，修复授权按钮布局，并将截图窗口创建、预热延后到实际取图之后。
-4. 在 `preserve-popups.py` 之后、`optimize-capture.py` 之前应用 `capture-recovery.patch`，并将 `CaptureDeadline.swift` 复制到 `macshot/Services/`。运行 `capture-deadline-tests.swift` 检查超时、迟到与重复回调。将 `FinderClipboard.swift` 和 `ForkUpdateService.swift` 复制到 `macshot/Services/`。设置辅助文件由改版脚本复制。
+4. 在 `preserve-popups.py` 之后、`optimize-capture.py` 之前应用 `capture-recovery.patch` 和 `overlay-warmup.patch`，并将 `CaptureDeadline.swift` 复制到 `macshot/Services/`。运行 `capture-deadline-tests.swift` 检查超时、迟到与重复回调。将 `FinderClipboard.swift` 和 `ForkUpdateService.swift` 复制到 `macshot/Services/`。设置辅助文件由改版脚本复制。
 5. 运行测试，编译并强制链接 `keyboard/EscapeFix.m` 的通用静态库，再构建 `macshot` scheme。
 6. 将外部包命名为 `Snaplet.app`，临时签名，打包安装包、完整修改后源码及校验值。普通提交只构建并上传 Actions 产物；验证且更新版本号与标签后，手动运行工作流并选择 `publish` 才公开发布（本次经授权的 finder.14 发布提交另有精确消息匹配入口），拒绝覆盖已发布的安装包。
 
