@@ -439,7 +439,7 @@
  
  "Advanced options" = "Advanced options";
 +
-+"Screen capture timed out. Please try again." = "Captura ecranului a expirat. Încercați din nou.";
++"Screen capture timed out. Please try again." = "Timpul pentru realizarea capturii de ecran a expirat. Încercați din nou.";
 --- a/macshot/ru.lproj/Localizable.strings
 +++ b/macshot/ru.lproj/Localizable.strings
 @@ -730,3 +730,5 @@
