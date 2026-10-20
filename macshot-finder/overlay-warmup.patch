@@ -1,0 +1,116 @@
+--- a/macshot/AppDelegate.swift
++++ b/macshot/AppDelegate.swift
+@@ -469,7 +469,7 @@
+         // New screen showed up between prewarms — create on demand.
+         let controller = OverlayWindowController(screen: screen)
+         overlayControllerPool[ObjectIdentifier(screen)] = controller
+-        controller.warmPanel()
++        // Present this new panel directly; only idle prewarming may queue a hide.
+         return controller
+     }
+ 
+@@ -1244,11 +1244,24 @@
+     /// the flags inside `startCapture`'s `!isCapturing` guard, because during a
+     /// delay-capture countdown `isCapturing` is already true and the pending mode
+     /// belongs to that accepted (not-yet-consumed) capture.
++    private func recoverOrphanedCaptureIfNeeded() {
++        guard isCapturing, captureStartupTimeout == nil,
++              delayTimer == nil, delayCountdownWindow == nil,
++              recordingEngine == nil, scrollCaptureController == nil,
++              !overlayControllers.contains(where: { $0.hasInteractiveWindow }) else { return }
++        CaptureDiagnostics.record("recover hidden capture session=\(captureSessionID)")
++        captureSessionID &+= 1
++        cancelPreCaptureCountdown()
++        dismissOverlays(refocusPreviousApp: false)
++    }
++
+     private var canStartCapture: Bool {
+-        !isCapturing && recordingEngine == nil
++        recoverOrphanedCaptureIfNeeded()
++        return !isCapturing && recordingEngine == nil
+     }
+ 
+     private func startCapture(fromMenu: Bool = false) {
++        recoverOrphanedCaptureIfNeeded()
+         CaptureDiagnostics.record("capture request menu=\(fromMenu) busy=\(isCapturing) recording=\(recordingEngine != nil)")
+         guard !isCapturing else { return }
+         // Don't allow captures while recording
+--- a/macshot/UI/Overlay/OverlayWindowController.swift
++++ b/macshot/UI/Overlay/OverlayWindowController.swift
+@@ -101,6 +101,16 @@
+     private var overlayView: OverlayView?
+     private var rootView: ScreenshotOverlayRootView?
+     private var overlayWindow: OverlayWindow?
++    private var warmupGeneration: UInt = 0
++
++    /// Warming and presenting must not share a deferred orderOut operation.
++    private func invalidateWarmup() { warmupGeneration &+= 1 }
++
++    var hasInteractiveWindow: Bool {
++        guard let window = overlayWindow else { return false }
++        return window.isVisible && !window.ignoresMouseEvents && window.alphaValue > 0.5
++    }
++
+     private var shareDelegate: SharePickerDelegate?
+     private var shareDismissTime: Date = .distantPast
+     var windowNumber: CGWindowID {
+@@ -202,6 +212,8 @@
+     /// for setScreenshot() to install one.
+     func showOverlay() {
+         guard let window = overlayWindow else { return }
++        invalidateWarmup()
++        window.alphaValue = 1
+         timingMark?("showOverlay begin appActive=\(NSApp.isActive)")
+         // A real capture is being presented — enable mouse interaction.
+         // (Idle/warmed panels are click-through; see setupWindow.)
+@@ -231,6 +243,8 @@
+     }
+ 
+     func makeKey() {
++        invalidateWarmup()
++        overlayWindow?.alphaValue = 1
+         overlayWindow?.ignoresMouseEvents = false
+         overlayWindow?.makeKeyAndOrderFront(nil)
+         if let view = overlayView {
+@@ -245,10 +259,12 @@
+     /// hits the warm path. Pair with the overlay controller pool that keeps
+     /// the panel alive across capture sessions.
+     func warmPanel() {
+-        guard let panel = overlayWindow else { return }
++        guard let panel = overlayWindow, !hasInteractiveWindow else { return }
++        invalidateWarmup()
++        let generation = warmupGeneration
+         // Use a barely-visible alpha so WindowServer doesn't optimize the
+         // window away as a transparent no-op. Restore after we order out.
+-        let savedAlpha = panel.alphaValue
++        let savedAlpha: CGFloat = 1
+         // Keep the warm panel click-through. Even if the deferred orderOut
+         // below is stranded (e.g. across a sleep/wake or display reconfigure),
+         // an invisible click-through window can't lock out input (issue #231).
+@@ -258,8 +274,8 @@
+         rootView?.layoutSubtreeIfNeeded()
+         overlayView?.displayIfNeeded()
+         CATransaction.flush()
+-        DispatchQueue.main.async { [weak panel] in
+-            guard let panel else { return }
++        DispatchQueue.main.async { [weak self, weak panel] in
++            guard let self, let panel, self.warmupGeneration == generation else { return }
+             panel.orderOut(nil)
+             panel.alphaValue = savedAlpha
+             panel.ignoresMouseEvents = true
+@@ -394,6 +410,7 @@
+     /// what makes the next capture instant, since WindowServer's per-window
+     /// composition cache survives `orderOut`).
+     func dismiss() {
++        invalidateWarmup()
+         saveSelectionIfNeeded()
+         overlayView?.reset()
+         overlayView?.screenshotImage = nil
+@@ -416,6 +433,7 @@
+     /// (display added/removed), or app shutdown. After this the controller is
+     /// dead and a new one must be constructed.
+     func tearDown() {
++        invalidateWarmup()
+         overlayView?.reset()
+         overlayView?.overlayDelegate = nil
+         overlayWindow?.contentView = nil
