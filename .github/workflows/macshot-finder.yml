@@ -97,6 +97,13 @@ jobs:
           cp macshot-finder/update-test.swift "$RUNNER_TEMP/main.swift"
           swiftc -O source/macshot/Services/LanguageManager.swift source/macshot/Services/ForkUpdateService.swift "$RUNNER_TEMP/main.swift" -o "$RUNNER_TEMP/update-test"
           "$RUNNER_TEMP/update-test"
+      - name: Restore and verify locally installed finder.21 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C source apply --check ../macshot-finder/local-finder.21.patch
+          git -C source apply ../macshot-finder/local-finder.21.patch
+          python3 macshot-finder/verify-local-source.py source
       - name: Run upstream tests
         working-directory: source
         shell: bash
@@ -108,7 +115,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.15 CURRENT_PROJECT_VERSION=43015 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
+          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.21 CURRENT_PROJECT_VERSION=43021 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
       - name: Sign and package app and corresponding source
         shell: bash
         run: |
@@ -122,6 +129,8 @@ jobs:
           cp macshot-finder/README.md package/Snaplet.app/Contents/Resources/SNAPLET-NOTICES.md
           codesign --force --deep --sign - --timestamp=none --entitlements source/macshot/macshot.entitlements package/Snaplet.app
           codesign --verify --deep --strict package/Snaplet.app
+          lipo -verify_arch arm64 x86_64 package/Snaplet.app/Contents/MacOS/macshot
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' package/Snaplet.app/Contents/Info.plist)" = 4.3.0-finder.21
           test ! -d package/Snaplet.app/Contents/Frameworks/Sparkle.framework
           if otool -L package/Snaplet.app/Contents/MacOS/macshot | grep -q 'Sparkle.framework'; then
             echo 'Unused Sparkle dependency is still linked.'
@@ -130,7 +139,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' package/Snaplet.app/Contents/Info.plist)" = com.sw33tlie.macshot.macshot
           nm package/Snaplet.app/Contents/MacOS/macshot | grep InstallEscapeFix
           ditto -c -k --sequesterRsrc --keepParent package/Snaplet.app dist/MacShot-Finder.zip
-          cp -R macshot-finder source/SnapletFork
+          cp -R macshot-finder/. source/SnapletFork/
           cp .github/workflows/macshot-finder.yml source/SnapletFork/build-workflow.yml
           test -d source/.git
           rm -rf source/.git
@@ -144,7 +153,7 @@ jobs:
           path: dist/*
       - name: Publish separate macshot release
         if: >-
-          (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.event.head_commit.message == 'Release finder.15: prevent delayed warmup from hiding active captures')
+          (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.event.head_commit.message == 'Release finder.21: publish locally verified version')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -152,7 +161,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GH_REPO" = TC023456-sys/Snaplet
-          TAG=macshot-v4.3.0-finder.15
+          TAG=macshot-v4.3.0-finder.21
           if gh release view "$TAG" >/dev/null 2>&1; then
             test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true || { echo 'Refusing to replace published binaries.'; exit 1; }
             gh release edit "$TAG" --target "$GITHUB_SHA" --notes-file macshot-finder/RELEASE-NOTES.md
@@ -160,7 +169,7 @@ jobs:
             gh release edit "$TAG" --draft=false --latest
             exit 0
           fi
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.15 · 修复闲置后截图失效' --latest --notes-file macshot-finder/RELEASE-NOTES.md
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.21 · 设置自适应与稳定性更新' --latest --notes-file macshot-finder/RELEASE-NOTES.md
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
