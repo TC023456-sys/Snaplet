@@ -6,7 +6,7 @@
 
 ## 下载与构建
 
-公开安装包见 [Releases](https://github.com/TC023456-sys/Snaplet/releases)，版本变更见 `macshot-finder/RELEASE-NOTES.md`。草稿和本地修改不等于公开更新。
+当前发布版本为 **4.3.0-finder.21**，安装包见 [Releases](https://github.com/TC023456-sys/Snaplet/releases)，版本变更见 `macshot-finder/RELEASE-NOTES.md`。草稿和本地修改不等于公开更新。
 
 构建说明见 `macshot-finder/README.md`，自动步骤见 `.github/workflows/macshot-finder.yml`。流程克隆固定上游、应用补丁、替换品牌资源、执行测试并构建安装包及完整对应源码。原作者署名与 GPL 声明保留。
 
