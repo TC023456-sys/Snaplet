@@ -4308,7 +4308,7 @@ index b29725b..bcf2ea3 100644
 +
 +"PNG is always included so every app can paste" = "PNG সবসময় যুক্ত থাকে, যাতে যেকোনো অ্যাপ পেস্ট করতে পারে";
 diff --git a/macshot/ca.lproj/Localizable.strings b/macshot/ca.lproj/Localizable.strings
-index cfaf724..c168409 100644
+index cfaf724..0054dcc 100644
 --- a/macshot/ca.lproj/Localizable.strings
 +++ b/macshot/ca.lproj/Localizable.strings
 @@ -734,3 +734,7 @@
@@ -4316,7 +4316,7 @@ index cfaf724..c168409 100644
  
  "Screen capture timed out. Please try again." = "S’ha esgotat el temps de captura de pantalla. Torna-ho a provar.";
 +
-+"Also copy to the clipboard in this format" = "Copia també al porta-retalls en aquest format";
++"Also copy to the clipboard in this format" = "Inclou també aquest format al porta-retalls";
 +
 +"PNG is always included so every app can paste" = "Sempre s'inclou PNG perquè qualsevol app pugui enganxar";
 diff --git a/macshot/cs.lproj/Localizable.strings b/macshot/cs.lproj/Localizable.strings
