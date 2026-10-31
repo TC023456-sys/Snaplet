@@ -129,7 +129,7 @@ jobs:
           cp macshot-finder/README.md package/Snaplet.app/Contents/Resources/SNAPLET-NOTICES.md
           codesign --force --deep --sign - --timestamp=none --entitlements source/macshot/macshot.entitlements package/Snaplet.app
           codesign --verify --deep --strict package/Snaplet.app
-          lipo -verify_arch arm64 x86_64 package/Snaplet.app/Contents/MacOS/macshot
+          lipo package/Snaplet.app/Contents/MacOS/macshot -verify_arch arm64 x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' package/Snaplet.app/Contents/Info.plist)" = 4.3.0-finder.21
           test ! -d package/Snaplet.app/Contents/Frameworks/Sparkle.framework
           if otool -L package/Snaplet.app/Contents/MacOS/macshot | grep -q 'Sparkle.framework'; then
