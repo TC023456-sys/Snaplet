@@ -44,7 +44,11 @@
 
 Release 源码包的 `SnapletFork` 目录保留品牌脚本、资源、键盘代码、测试与补丁，便于重现构建。
 
-### 截图资源优化（待打包验证）
+### finder.21 对应源码
+
+完成基础补丁、品牌和 finder.15 稳定性检查后，在仓库根目录运行 `git -C source apply ../macshot-finder/local-finder.21.patch`，再运行 `python3 macshot-finder/verify-local-source.py source`。这一步恢复本机 finder.21 的完整修改，并核对 275 个源码和资源文件；随后对最终源码运行上游测试并构建通用 Release。具体顺序以工作流为准。
+
+### 截图资源优化与验证边界
 
 - macOS 26 的矩形单帧截图不提前枚举共享窗口；窗口截图仍可按需查询。
 - 整屏静态截图仅抓取鼠标所在显示器，SCK 和旧接口回退使用同一范围。普通框选及录制保持全屏幕支持，不降低原图分辨率。
