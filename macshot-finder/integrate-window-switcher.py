@@ -21,6 +21,9 @@ text = text.replace(anchor, '        WindowSwitcher.shared.appendMenu(to: menu)\
 anchor = '    private func startCapture(fromMenu: Bool = false) {\n'
 assert text.count(anchor) == 1
 text = text.replace(anchor, anchor + '        WindowSwitcher.shared.cancelForCapture()\n')
+anchor = '        let editMenuItem = NSMenuItem()'
+assert text.count(anchor) == 1
+text = text.replace(anchor, '        fileMenu.addItem(NSMenuItem.separator())\n        WindowSwitcher.shared.appendMenu(to: fileMenu)\n\n' + anchor)
 app.write_text(text)
 hotkey = root / 'macshot/Services/HotkeyManager.swift'
 text = hotkey.read_text()
