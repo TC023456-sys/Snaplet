@@ -94,9 +94,13 @@ int main(void) {
         assert(app.isActive && app.activationCount == 1);
         assert(window.becameKey && window.testResponder == view);
         assert(view.received == 0);
+        // Already-active Snaplet can still have Settings/the switcher as key.
+        window.becameKey = NO;
+        window.testResponder = nil;
         route(app, @selector(sendEvent:), click);
         assert(app.activationCount == 1);
-        puts("4 selection-focus checks passed: activation, key window, responder, no repeated activation");
+        assert(window.becameKey && window.testResponder == view);
+        puts("5 selection-focus checks passed, including already-active app focus repair");
         for (NSNumber *key in @[@36, @76, @53]) {
             window.isVisible = YES;
             NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint

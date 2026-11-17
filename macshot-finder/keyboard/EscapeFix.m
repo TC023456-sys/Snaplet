@@ -22,13 +22,13 @@ static NSView *CaptureView(NSView *view) {
     // Nonactivating capture panels can leave physical keyboard input directed
     // at the previously active app. Acquire focus on the first selection click,
     // before normal AppKit dispatch chooses the clicked control's responder.
-    if (event.type == NSEventTypeLeftMouseDown && !self.isActive) {
+    if (event.type == NSEventTypeLeftMouseDown) {
         for (NSWindow *window in self.orderedWindows) {
             if (!window.isVisible || window.ignoresMouseEvents ||
                 ![NSStringFromClass(window.class) isEqualToString:@"macshot.OverlayWindow"]) continue;
             NSView *view = CaptureView(window.contentView);
             if (!view) continue;
-            [self activateIgnoringOtherApps:YES];
+            if (!self.isActive) [self activateIgnoringOtherApps:YES];
             [window makeKeyWindow];
             [window makeFirstResponder:view];
             break;
