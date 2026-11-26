@@ -113,6 +113,17 @@ jobs:
           python3 macshot-finder/verify-finder50.py source
           swiftc -swift-version 5 -parse-as-library source/macshot/Services/WindowSwitchOrder.swift macshot-finder/window-order-tests.swift -o "$RUNNER_TEMP/window-order-tests"
           "$RUNNER_TEMP/window-order-tests"
+      - name: Restore and verify finder.52 window fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp macshot-finder/WindowSwitchOrder.swift source/macshot/Services/WindowSwitchOrder.swift
+          cp macshot-finder/WindowSwitcher.swift source/macshot/Services/WindowSwitcher.swift
+          python3 macshot-finder/verify-finder52.py source
+          swiftc -swift-version 5 -parse-as-library source/macshot/Services/WindowSwitchOrder.swift macshot-finder/window-order-tests.swift -o "$RUNNER_TEMP/window-order-tests"
+          "$RUNNER_TEMP/window-order-tests"
+          swiftc -swift-version 5 -parse-as-library source/macshot/Services/WindowSwitchOrder.swift macshot-finder/new-window-order-tests.swift -o "$RUNNER_TEMP/new-window-order-tests"
+          "$RUNNER_TEMP/new-window-order-tests"
       - name: Run upstream tests
         working-directory: source
         shell: bash
@@ -124,7 +135,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.50 CURRENT_PROJECT_VERSION=43050 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
+          xcodebuild build -scheme macshot -configuration Release -destination 'platform=macOS' -derivedDataPath ../build CODE_SIGNING_ALLOWED=NO ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO MARKETING_VERSION=4.3.0-finder.52 CURRENT_PROJECT_VERSION=43052 "OTHER_LDFLAGS=\$(inherited) -force_load $RUNNER_TEMP/SnapletKeyboard.a" > ../release-build.log 2>&1 || { tail -100 ../release-build.log; exit 1; }
       - name: Sign and package app and corresponding source
         shell: bash
         run: |
@@ -139,7 +150,7 @@ jobs:
           codesign --force --deep --sign - --timestamp=none --entitlements source/macshot/macshot.entitlements package/Snaplet.app
           codesign --verify --deep --strict package/Snaplet.app
           lipo package/Snaplet.app/Contents/MacOS/macshot -verify_arch arm64 x86_64
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' package/Snaplet.app/Contents/Info.plist)" = 4.3.0-finder.50
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' package/Snaplet.app/Contents/Info.plist)" = 4.3.0-finder.52
           test ! -d package/Snaplet.app/Contents/Frameworks/Sparkle.framework
           if otool -L package/Snaplet.app/Contents/MacOS/macshot | grep -q 'Sparkle.framework'; then
             echo 'Unused Sparkle dependency is still linked.'
@@ -162,7 +173,7 @@ jobs:
           path: dist/*
       - name: Publish separate macshot release
         if: >-
-          (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.event.head_commit.message == 'Release finder.50: publish locally verified version')
+          (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && github.event.head_commit.message == 'Release finder.52: publish window refresh fixes and permission guide')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -170,7 +181,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GH_REPO" = TC023456-sys/Snaplet
-          TAG=macshot-v4.3.0-finder.50
+          TAG=macshot-v4.3.0-finder.52
           if gh release view "$TAG" >/dev/null 2>&1; then
             test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true || { echo 'Refusing to replace published binaries.'; exit 1; }
             gh release edit "$TAG" --target "$GITHUB_SHA" --notes-file macshot-finder/RELEASE-NOTES.md
@@ -178,7 +189,7 @@ jobs:
             gh release edit "$TAG" --draft=false --latest
             exit 0
           fi
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.50 · 窗口切换与截图兼容更新' --latest --notes-file macshot-finder/RELEASE-NOTES.md
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title 'Snaplet 4.3.0-finder.52 · 新窗口排序与刷新优化' --latest --notes-file macshot-finder/RELEASE-NOTES.md
       - name: Upload failure logs
         if: failure()
         uses: actions/upload-artifact@v4
